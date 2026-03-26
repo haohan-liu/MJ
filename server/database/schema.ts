@@ -1,0 +1,340 @@
+import { sqliteTable, text, integer, unique } from 'drizzle-orm/sqlite-core'
+
+// 从共享模块导入类型和常量
+// 类型用于数据库字段定义，常量已移至 shared/constants.ts
+export type {
+  ModelCategory,
+  ImageModelType,
+  ChatModelType,
+  VideoModelType,
+  ModelType,
+  ApiFormat,
+  TaskType,
+  TaskStatus,
+  MessageRole,
+  MessageMark,
+  MessageStatus,
+  MessageFile,
+  ApiKeyConfig,
+  UpstreamPlatform,
+  UpstreamInfo,
+  McpServerType,
+  ToolCallRecord,
+  ModelUICapabilities,
+} from '../../app/shared/types'
+
+import type { ModelCategory, ModelType, ApiFormat, TaskType, TaskStatus, MessageRole, MessageMark, MessageStatus, MessageFile, ApiKeyConfig, UpstreamPlatform, UpstreamInfo, ModelParams, ModelCapability, McpServerType, ToolCallRecord, ModelUICapabilities } from '../../app/shared/types'
+
+// 用户角色类型
+export type UserRole = 'admin' | 'user'
+
+// 用户表
+export const users = sqliteTable('users', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  username: text('username').unique(), // 账号（管理员使用）
+  email: text('email').unique(), // 邮箱（保留兼容）
+  password: text('password'), // hashed（管理员使用）
+  name: text('name'),
+  avatar: text('avatar'), // 头像 base64 或 URL
+  role: text('role').notNull().default('user').$type<UserRole>(), // 角色：admin | user
+  apiKey: text('api_key'), // 用户端 API Key（用户端登录使用）
+  mcpApiKey: text('mcp_api_key'), // MCP 接口 API Key，格式：mjs_xxx
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type User = typeof users.$inferSelect
+export type NewUser = typeof users.$inferInsert
+
+// 代理配置表（用户级别）
+export const proxies = sqliteTable('proxies', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  name: text('name').notNull(),
+  url: text('url').notNull(), // 代理地址，如 http://127.0.0.1:8080
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type Proxy = typeof proxies.$inferSelect
+export type NewProxy = typeof proxies.$inferInsert
+
+// 上游配置表（用户级别）- 原 model_configs
+export const upstreams = sqliteTable('upstreams', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  name: text('name').notNull(), // 上游名称，用户自定义，如 "我的MJ", "公司API"
+  baseUrl: text('base_url').notNull(), // API请求前缀
+  apiKeys: text('api_keys', { mode: 'json' }).$type<ApiKeyConfig[]>().notNull(), // 多Key配置
+  remark: text('remark'), // 备注说明
+  sortOrder: integer('sort_order').notNull().default(999), // 排序顺序，0 表示置顶
+  disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false), // 是否禁用
+  proxyId: integer('proxy_id'), // 关联代理配置（null=不使用代理）
+  upstreamPlatform: text('upstream_platform').$type<UpstreamPlatform>(), // 上游平台类型（用于余额查询）
+  showUserBalance: integer('show_user_balance', { mode: 'boolean' }).notNull().default(false), // 是否显示用户余额
+  upstreamInfo: text('upstream_info', { mode: 'json' }).$type<UpstreamInfo>(), // 上游信息缓存（余额、用户信息等）
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }), // 软删除：null=正常，有值=已删除
+})
+
+export type Upstream = typeof upstreams.$inferSelect
+export type NewUpstream = typeof upstreams.$inferInsert
+
+// AI 模型表（上游的子表）- 原 model_type_configs JSON 字段
+export const aimodels = sqliteTable('aimodels', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  upstreamId: integer('upstream_id').notNull(), // 关联上游配置
+  category: text('category').$type<ModelCategory>().notNull(), // 模型分类：image | chat | video
+  modelType: text('model_type').$type<ModelType>().notNull(), // 界面显示的模型类型
+  apiFormat: text('api_format').$type<ApiFormat>().notNull(), // 实际请求时使用的 API 格式
+  modelName: text('model_name').notNull(), // 发送给上游的模型标识符
+  name: text('name').notNull(), // 显示名称（用户可自定义）
+  capabilities: text('capabilities', { mode: 'json' }).$type<ModelCapability[]>(), // 模型能力列表（chat: vision/reasoning等）
+  vendor: text('vendor'), // 厂商名称（手动指定，空则从 modelName 自动推断）
+  uiCapabilities: text('ui_capabilities', { mode: 'json' }).$type<ModelUICapabilities>(), // 前端 UI 能力配置（覆盖默认推断）
+  estimatedTime: integer('estimated_time').notNull().default(60), // 预计时间（秒）
+  keyName: text('key_name').notNull().default('default'), // 使用的 Key 名称
+  sortOrder: integer('sort_order').notNull().default(999), // 排序顺序，与 upstreams 表保持一致
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }), // 软删除：null=正常，有值=已删除
+})
+
+export type Aimodel = typeof aimodels.$inferSelect
+export type NewAimodel = typeof aimodels.$inferInsert
+
+// 任务表
+export const tasks = sqliteTable('tasks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().default(1),
+  upstreamId: integer('upstream_id').notNull(), // 关联上游配置
+  aimodelId: integer('aimodel_id').notNull(), // 关联 AI 模型
+  taskType: text('task_type').$type<TaskType>().notNull().default('image'), // 任务类型：image | video
+  modelType: text('model_type').$type<ModelType>().notNull(), // 实际使用的模型类型（冗余，便于查询）
+  apiFormat: text('api_format').$type<ApiFormat>().notNull(), // 使用的请求格式（冗余，便于查询）
+  modelName: text('model_name').notNull(), // 实际使用的模型名称（冗余，便于查询）
+  prompt: text('prompt'),
+  modelParams: text('model_params', { mode: 'json' }).$type<ModelParams | null>(), // 模型专用参数（JSON）
+  images: text('images', { mode: 'json' }).$type<string[]>().default([]),
+  type: text('type').notNull().default('imagine'), // imagine | blend（图片任务专用）
+  status: text('status').$type<TaskStatus>().notNull().default('pending'),
+  upstreamTaskId: text('upstream_task_id'), // 上游返回的任务ID
+  progress: text('progress'), // 进度，如 "50%"
+  resourceUrl: text('resource_url'), // 产物 URL（图片或视频），本地化前为远程 URL，本地化后为服务器相对路径
+  resourceStorage: text('resource_storage').$type<'local' | 'cos'>().default('local'), // 存储方式：local=本地，cos=腾讯云COS
+  resourceDeleted: integer('resource_deleted', { mode: 'boolean' }).default(false), // 资源文件是否已被删除
+  error: text('error'), // 错误信息
+  isBlurred: integer('is_blurred', { mode: 'boolean' }).notNull().default(true), // 图片模糊状态（防窥屏）
+  uniqueId: text('unique_id'), // 唯一标识（用于嵌入式绘图组件的去重和缓存）
+  sourceType: text('source_type').$type<'workbench' | 'chat' | 'api'>().default('workbench'), // 任务来源：workbench=绘图工作台，chat=对话嵌入，api=MCP/HTTP API
+  buttons: text('buttons', { mode: 'json' }).$type<Array<{
+    customId: string
+    emoji: string
+    label: string
+    style: number
+    type: number
+  }>>(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  startedAt: integer('started_at', { mode: 'timestamp' }), // 任务开始执行时间
+  duration: integer('duration'), // 实际耗时（秒）
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }), // 软删除：null=正常，有值=已删除
+})
+
+export type Task = typeof tasks.$inferSelect
+export type NewTask = typeof tasks.$inferInsert
+
+// ==================== 对话功能相关表 ====================
+
+// 助手表
+export const assistants = sqliteTable('assistants', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  avatar: text('avatar'), // 头像图片路径
+  systemPrompt: text('system_prompt'),
+  aimodelId: integer('aimodel_id'), // 关联 AI 模型（通过此字段可获取 upstream 信息）
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  suggestions: text('suggestions', { mode: 'json' }).$type<string[]>(), // 开场白建议缓存
+  conversationCount: integer('conversation_count').notNull().default(0), // 对话数量（冗余字段，由后端维护）
+  pinnedAt: integer('pinned_at', { mode: 'timestamp' }), // 收藏时间（null=未收藏，有值=已收藏，按此字段降序排列收藏助手）
+  lastActiveAt: integer('last_active_at', { mode: 'timestamp' }), // 最后活跃时间（对话/消息变动时更新）
+  maxToolSteps: integer('max_tool_steps').notNull().default(20), // MCP 工具调用最大轮次
+  autoApproveMcp: integer('auto_approve_mcp', { mode: 'boolean' }).notNull().default(false), // 自动通过 MCP 调用（作为新建对话的默认值）
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type Assistant = typeof assistants.$inferSelect
+export type NewAssistant = typeof assistants.$inferInsert
+
+// 对话表
+export const conversations = sqliteTable('conversations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  assistantId: integer('assistant_id').notNull(),
+  title: text('title').notNull(),
+  autoApproveMcp: integer('auto_approve_mcp', { mode: 'boolean' }).notNull().default(false), // 自动通过 MCP 调用
+  enableThinking: integer('enable_thinking', { mode: 'boolean' }).notNull().default(false), // 启用思考模式
+  enableWebSearch: integer('enable_web_search', { mode: 'boolean' }).notNull().default(false), // 启用 Web 搜索
+  expiresAt: integer('expires_at', { mode: 'timestamp' }), // 临时对话过期时间，null 表示永久对话
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type Conversation = typeof conversations.$inferSelect
+export type NewConversation = typeof conversations.$inferInsert
+
+// 消息表
+export const messages = sqliteTable('messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  conversationId: integer('conversation_id').notNull(),
+  role: text('role').$type<MessageRole>().notNull(),
+  content: text('content').notNull(),
+  files: text('files', { mode: 'json' }).$type<MessageFile[]>(), // 附件文件列表
+  toolCalls: text('tool_calls', { mode: 'json' }).$type<ToolCallRecord[]>(), // 工具调用记录（仅 assistant 消息）
+  modelDisplayName: text('model_display_name'), // 模型显示名称（格式："上游名称 / 模型显示名称"），仅 assistant 消息，历史快照用于显示
+  mark: text('mark').$type<MessageMark>(), // 消息标记：error=错误，compress-request=压缩请求，compress-response=压缩响应
+  status: text('status').$type<MessageStatus>(), // AI 消息状态：created/pending/streaming/completed/stopped/failed
+  sortId: integer('sort_id'), // 排序ID，用于压缩后消息重排序
+  duration: integer('duration'), // 生成耗时（毫秒），仅 assistant 消息
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type Message = typeof messages.$inferSelect
+export type NewMessage = typeof messages.$inferInsert
+
+// ==================== 用户设置表 ====================
+
+// 用户设置表（键值对形式）
+export const userSettings = sqliteTable('user_settings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  unique().on(table.userId, table.key),
+])
+
+export type UserSetting = typeof userSettings.$inferSelect
+export type NewUserSetting = typeof userSettings.$inferInsert
+
+// ==================== MCP 客户端相关表 ====================
+
+// MCP 服务配置表（用户级）
+export const mcpServers = sqliteTable('mcp_servers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  type: text('type').$type<McpServerType>().notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  baseUrl: text('base_url'),
+  headers: text('headers', { mode: 'json' }).$type<Record<string, string>>(),
+  command: text('command'),
+  args: text('args', { mode: 'json' }).$type<string[]>(),
+  env: text('env', { mode: 'json' }).$type<Record<string, string>>(),
+  timeout: integer('timeout').notNull().default(60),
+  disabledTools: text('disabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  autoApproveTools: text('auto_approve_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  logoUrl: text('logo_url'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type McpServer = typeof mcpServers.$inferSelect
+export type NewMcpServer = typeof mcpServers.$inferInsert
+
+// 助手与 MCP 服务关联表
+export const assistantMcpServers = sqliteTable('assistant_mcp_servers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  assistantId: integer('assistant_id').notNull(),
+  mcpServerId: integer('mcp_server_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  unique().on(table.assistantId, table.mcpServerId),
+])
+
+export type AssistantMcpServer = typeof assistantMcpServers.$inferSelect
+export type NewAssistantMcpServer = typeof assistantMcpServers.$inferInsert
+
+// ==================== 模型可用性测试相关表 ====================
+
+// 测试记录表
+export const modelTestRecords = sqliteTable('model_test_records', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  category: text('category').$type<ModelCategory>().notNull(),
+  prompt: text('prompt').notNull(),
+  keywords: text('keywords'), // JSON 数组字符串
+  totalCount: integer('total_count').notNull().default(0),
+  successCount: integer('success_count').notNull().default(0),
+  failedCount: integer('failed_count').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+})
+
+export type ModelTestRecord = typeof modelTestRecords.$inferSelect
+export type NewModelTestRecord = typeof modelTestRecords.$inferInsert
+
+// 测试结果表
+export const modelTestResults = sqliteTable('model_test_results', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  recordId: integer('record_id').notNull(),
+  aimodelId: integer('aimodel_id').notNull(),
+  status: text('status').$type<'success' | 'failed'>().notNull(),
+  responseTime: integer('response_time'),
+  responsePreview: text('response_preview'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+})
+
+export type ModelTestResult = typeof modelTestResults.$inferSelect
+export type NewModelTestResult = typeof modelTestResults.$inferInsert
+
+// 公告类型
+export type AnnouncementType = 'info' | 'warning' | 'success' | 'error'
+
+// 公告表
+export const announcements = sqliteTable('announcements', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  content: text('content').notNull(), // 公告内容（支持HTML链接）
+  type: text('type').notNull().default('info').$type<AnnouncementType>(), // 公告类型
+  icon: text('icon'), // 自定义图标名称
+  link: text('link'), // 点击跳转链接
+  linkText: text('link_text'), // 链接显示文字
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true), // 是否启用
+  sortOrder: integer('sort_order').notNull().default(0), // 排序（数字越小越靠前）
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type Announcement = typeof announcements.$inferSelect
+export type NewAnnouncement = typeof announcements.$inferInsert
+
+// ==================== 站点配置表 ====================
+
+// 站点配置表（全局，仅管理员可写）
+export const siteSettings = sqliteTable('site_settings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  key: text('key').notNull().unique(), // 配置键名
+  value: text('value').notNull(), // 配置值
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type SiteSetting = typeof siteSettings.$inferSelect
+export type NewSiteSetting = typeof siteSettings.$inferInsert
+
+// ==================== 上传图片表 ====================
+
+// 上传图片记录表（用于追踪参考图，支持过期清理）
+export const uploadedImages = sqliteTable('uploaded_images', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull(),
+  fileName: text('file_name').notNull(), // 文件名（本地）或 COS key
+  url: text('url').notNull(), // 访问 URL
+  storage: text('storage').notNull().default('local').$type<'local' | 'cos'>(), // 存储类型
+  deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false), // 是否已删除
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+})
+
+export type UploadedImage = typeof uploadedImages.$inferSelect
+export type NewUploadedImage = typeof uploadedImages.$inferInsert

@@ -1,0 +1,50 @@
+# 依赖
+node_modules/
+
+# 构建输出
+.nuxt/
+.output/
+dist/
+public/docs/
+docs/.vitepress/cache/
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# 数据目录（数据库、用户数据）
+data/
+
+# 用户上传的图片
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+logs/
+
+# 缓存
+.cache/
+node-compile-cache/
+
+# 测试覆盖率
+coverage/
+
+# 临时文件
+todo.md
+image.png
+
+# git worktrees
+.worktrees/
+
+# docker 文件
+docker-compose.override.yml

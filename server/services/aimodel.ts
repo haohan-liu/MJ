@@ -1,0 +1,350 @@
+// AI 模型服务层
+import { db } from '../database'
+import { aimodels, upstreams, users, assistants, type Aimodel, type NewAimodel, type ModelCategory, type ModelType, type ApiFormat } from '../database/schema'
+import { eq, and, isNull } from 'drizzle-orm'
+import { useUpstreamService } from './upstream'
+import type { ModelCapability, ModelUICapabilities } from '../../app/shared/types'
+
+export function useAimodelService() {
+  // 获取上游的所有模型
+  async function listByUpstream(upstreamId: number): Promise<Aimodel[]> {
+    return db.query.aimodels.findMany({
+      where: eq(aimodels.upstreamId, upstreamId),
+    })
+  }
+
+  // 获取单个模型
+  async function getById(id: number): Promise<Aimodel | undefined> {
+    return db.query.aimodels.findFirst({
+      where: eq(aimodels.id, id),
+    })
+  }
+
+  // 获取单个模型（包含上游名称）
+  async function getByIdWithUpstream(id: number): Promise<(Aimodel & { upstreamName: string }) | undefined> {
+    const result = await db
+      .select({
+        aimodel: aimodels,
+        upstream: upstreams,
+      })
+      .from(aimodels)
+      .leftJoin(upstreams, eq(aimodels.upstreamId, upstreams.id))
+      .where(eq(aimodels.id, id))
+      .limit(1)
+
+    if (!result[0] || !result[0].upstream) return undefined
+
+    return {
+      ...result[0].aimodel,
+      upstreamName: result[0].upstream.name,
+    }
+  }
+
+  // 根据上游ID和模型名称查找模型
+  async function findByModelName(
+    upstreamId: number,
+    modelName: string
+  ): Promise<Aimodel | undefined> {
+    return db.query.aimodels.findFirst({
+      where: and(
+        eq(aimodels.upstreamId, upstreamId),
+        eq(aimodels.modelName, modelName),
+      ),
+    })
+  }
+
+  // 根据上游ID和模型类型查找模型
+  async function findByModelType(
+    upstreamId: number,
+    modelType: ModelType
+  ): Promise<Aimodel | undefined> {
+    return db.query.aimodels.findFirst({
+      where: and(
+        eq(aimodels.upstreamId, upstreamId),
+        eq(aimodels.modelType, modelType),
+      ),
+    })
+  }
+
+  // 根据用户ID和模型名称查找模型（跨所有上游）
+  async function findByUserAndModelName(
+    userId: number,
+    modelName: string,
+    category?: ModelCategory
+  ): Promise<{ upstream: typeof upstreams.$inferSelect; aimodel: Aimodel } | undefined> {
+    // 获取用户所有上游
+    const userUpstreams = await db.query.upstreams.findMany({
+      where: eq(upstreams.userId, userId),
+    })
+
+    for (const upstream of userUpstreams) {
+      let query = and(
+        eq(aimodels.upstreamId, upstream.id),
+        eq(aimodels.modelName, modelName),
+      )
+
+      if (category) {
+        query = and(query, eq(aimodels.category, category))
+      }
+
+      const aimodel = await db.query.aimodels.findFirst({
+        where: query,
+      })
+
+      if (aimodel) {
+        return { upstream, aimodel }
+      }
+    }
+
+    return undefined
+  }
+
+  // 创建模型
+  async function create(data: {
+    upstreamId: number
+    category: ModelCategory
+    modelType: ModelType
+    apiFormat: ApiFormat
+    modelName: string
+    name: string  // 显示名称
+    estimatedTime?: number
+    keyName: string  // Key 名称
+  }): Promise<Aimodel> {
+    const [aimodel] = await db.insert(aimodels).values({
+      upstreamId: data.upstreamId,
+      category: data.category,
+      modelType: data.modelType,
+      apiFormat: data.apiFormat,
+      modelName: data.modelName,
+      name: data.name,
+      estimatedTime: data.estimatedTime ?? 60,
+      keyName: data.keyName,
+    }).returning()
+
+    if (!aimodel) {
+      throw new Error('创建模型失败')
+    }
+
+    return aimodel
+  }
+
+  // 批量创建模型
+  async function createMany(data: Array<{
+    upstreamId: number
+    category: ModelCategory
+    modelType: ModelType
+    apiFormat: ApiFormat
+    modelName: string
+    name: string  // 显示名称
+    estimatedTime?: number
+    keyName: string  // Key 名称
+    capabilities?: ModelCapability[]  // 模型能力
+    vendor?: string | null  // 厂商
+    uiCapabilities?: ModelUICapabilities | null  // UI 能力配置
+    sortOrder?: number  // 排序顺序
+  }>): Promise<Aimodel[]> {
+    if (data.length === 0) return []
+
+    const values = data.map(d => ({
+      upstreamId: d.upstreamId,
+      category: d.category,
+      modelType: d.modelType,
+      apiFormat: d.apiFormat,
+      modelName: d.modelName,
+      name: d.name,  // 显示名称
+      estimatedTime: d.estimatedTime ?? 60,
+      keyName: d.keyName,
+      capabilities: d.capabilities ?? null,  // 模型能力
+      vendor: d.vendor ?? null,  // 厂商
+      uiCapabilities: d.uiCapabilities ?? null,  // UI 能力配置
+      sortOrder: d.sortOrder ?? 999,  // 排序顺序
+    }))
+
+    return db.insert(aimodels).values(values).returning()
+  }
+
+  // 更新模型
+  async function update(id: number, data: Partial<{
+    category: ModelCategory
+    modelType: ModelType
+    apiFormat: ApiFormat
+    modelName: string
+    estimatedTime: number
+    keyName: string
+  }>): Promise<Aimodel | undefined> {
+    const [updated] = await db.update(aimodels)
+      .set(data)
+      .where(eq(aimodels.id, id))
+      .returning()
+
+    return updated
+  }
+
+  // 更新模型的预计时间（根据实际耗时自动更新）
+  async function updateEstimatedTime(
+    aimodelId: number,
+    actualTime: number
+  ): Promise<number> {
+    const newEstimatedTime = Math.round(actualTime)
+    await db.update(aimodels)
+      .set({ estimatedTime: newEstimatedTime })
+      .where(eq(aimodels.id, aimodelId))
+    return newEstimatedTime
+  }
+
+  // 删除模型（软删除 + 级联清空助手关联）
+  async function remove(id: number): Promise<boolean> {
+    // 1. 软删除模型
+    const result = await db.update(aimodels)
+      .set({ deletedAt: new Date() })
+      .where(eq(aimodels.id, id))
+      .returning()
+
+    if (result.length === 0) {
+      return false
+    }
+
+    // 2. 清空所有使用该模型的助手的模型关联
+    await db.update(assistants)
+      .set({ aimodelId: null })
+      .where(eq(assistants.aimodelId, id))
+
+    return true
+  }
+
+  // 删除上游的所有模型
+  async function removeByUpstream(upstreamId: number): Promise<number> {
+    const result = await db.delete(aimodels)
+      .where(eq(aimodels.upstreamId, upstreamId))
+      .returning()
+
+    return result.length
+  }
+
+  // 同步上游的模型配置（智能同步：更新已有、创建新的、软删除移除的 + 级联清空助手关联）
+  async function syncByUpstream(upstreamId: number, models: Array<{
+    id?: number
+    category: ModelCategory
+    modelType: ModelType
+    apiFormat: ApiFormat
+    modelName: string
+    name: string  // 显示名称
+    estimatedTime?: number
+    keyName: string  // Key 名称
+    capabilities?: ModelCapability[]  // 模型能力
+    vendor?: string | null  // 厂商
+    uiCapabilities?: ModelUICapabilities | null  // UI 能力配置
+    sortOrder?: number  // 排序顺序
+  }>): Promise<Aimodel[]> {
+    // 获取现有的所有模型（包括已软删除的）
+    const existing = await db.query.aimodels.findMany({
+      where: eq(aimodels.upstreamId, upstreamId),
+    })
+
+    const existingIds = new Set(existing.map(m => m.id))
+    const inputIds = new Set(models.filter(m => m.id).map(m => m.id!))
+
+    // 1. 更新已有模型
+    for (const model of models.filter(m => m.id)) {
+      await db.update(aimodels)
+        .set({
+          category: model.category,
+          modelType: model.modelType,
+          apiFormat: model.apiFormat,
+          modelName: model.modelName,
+          name: model.name,  // 显示名称
+          estimatedTime: model.estimatedTime ?? 60,
+          keyName: model.keyName,
+          capabilities: model.capabilities ?? null,  // 模型能力
+          vendor: model.vendor ?? null,  // 厂商
+          uiCapabilities: model.uiCapabilities ?? null,  // UI 能力配置
+          sortOrder: model.sortOrder ?? 999,  // 排序顺序
+          deletedAt: null,  // 如果之前被软删除，恢复它
+        })
+        .where(eq(aimodels.id, model.id!))
+    }
+
+    // 2. 创建新模型
+    const newModels = models.filter(m => !m.id)
+    if (newModels.length > 0) {
+      await createMany(newModels.map(m => ({ ...m, upstreamId })))
+    }
+
+    // 3. 软删除不在列表中的模型（排除已经软删除的）+ 级联清空助手关联
+    const toDelete = existing.filter(m => !inputIds.has(m.id) && !m.deletedAt)
+    const toDeleteIds = toDelete.map(m => m.id)
+
+    if (toDeleteIds.length > 0) {
+      // 软删除模型
+      for (const model of toDelete) {
+        await db.update(aimodels)
+          .set({ deletedAt: new Date() })
+          .where(eq(aimodels.id, model.id))
+      }
+
+      // 清空使用这些模型的助手的模型关联
+      for (const id of toDeleteIds) {
+        await db.update(assistants)
+          .set({ aimodelId: null })
+          .where(eq(assistants.aimodelId, id))
+      }
+    }
+
+    // 返回最新的模型列表（排除软删除的）
+    return db.query.aimodels.findMany({
+      where: and(
+        eq(aimodels.upstreamId, upstreamId),
+        isNull(aimodels.deletedAt),
+      ),
+    })
+  }
+
+  // 校验 aimodel 是否可用（管理员共享或用户自有）
+  async function verifyOwnership(aimodelId: number, userId: number): Promise<void> {
+    const aimodel = await getById(aimodelId)
+    if (!aimodel) {
+      throw new Error('模型配置不存在')
+    }
+    const upstreamService = useUpstreamService()
+    const upstream = await upstreamService.getByIdSimple(aimodel.upstreamId)
+    if (!upstream) {
+      throw new Error('上游配置不存在')
+    }
+    
+    // 获取当前用户信息
+    const currentUser = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    })
+    
+    // 获取管理员用户
+    const adminUser = await db.query.users.findFirst({
+      where: eq(users.role, 'admin'),
+    })
+    
+    // 权限校验：管理员可使用所有模型，普通用户可使用管理员共享的模型或自己的模型
+    const isAdmin = currentUser?.role === 'admin'
+    const isOwner = upstream.userId === userId
+    const isSharedFromAdmin = adminUser && upstream.userId === adminUser.id
+    
+    if (!isAdmin && !isOwner && !isSharedFromAdmin) {
+      throw new Error('无权使用该模型')
+    }
+  }
+
+  return {
+    listByUpstream,
+    getById,
+    getByIdWithUpstream,
+    findByModelName,
+    findByModelType,
+    findByUserAndModelName,
+    create,
+    createMany,
+    update,
+    updateEstimatedTime,
+    remove,
+    removeByUpstream,
+    syncByUpstream,
+    verifyOwnership,
+  }
+}
