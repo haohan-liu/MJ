@@ -269,7 +269,7 @@ export const IMAGE_MODEL_REGISTRY: ModelTypeMeta[] = [
     icon: 'i-heroicons-sparkles',
     cardDisplay: { label: 'NanoBanana', color: 'bg-yellow-500/80' },
     defaults: { modelName: 'gemini-2.5-flash-image', estimatedTime: 15 },
-    capabilities: { referenceImage: true, aspectRatio: true, size: true },
+    capabilities: { referenceImage: true, negativePrompt: false, aspectRatio: true, size: true },
   },
   {
     type: 'nanobanana-pro',
@@ -278,7 +278,7 @@ export const IMAGE_MODEL_REGISTRY: ModelTypeMeta[] = [
     icon: 'i-heroicons-sparkles',
     cardDisplay: { label: 'NB Pro', color: 'bg-orange-500/80' },
     defaults: { modelName: 'gemini-3-pro-image-preview', estimatedTime: 15 },
-    capabilities: { referenceImage: true, aspectRatio: true, size: true },
+    capabilities: { referenceImage: true, negativePrompt: false, aspectRatio: true, size: true },
   },
   {
     type: 'nanobanana-2',
@@ -287,7 +287,7 @@ export const IMAGE_MODEL_REGISTRY: ModelTypeMeta[] = [
     icon: 'i-heroicons-sparkles',
     cardDisplay: { label: 'NB 2', color: 'bg-amber-500/80' },
     defaults: { modelName: 'gemini-3.1-flash-image-preview', estimatedTime: 12 },
-    capabilities: { referenceImage: true, aspectRatio: true, size: true },
+    capabilities: { referenceImage: true, negativePrompt: false, aspectRatio: true, size: true },
   },
 ]
 

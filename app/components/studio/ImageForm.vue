@@ -132,107 +132,6 @@ const backgroundOptions = [
   { label: '不透明', value: 'opaque' },
 ]
 
-// ============================================================
-// NanoBanana 模型独立配置（严格基于 Google 官方文档限制）
-// ============================================================
-
-/**
- * NanoBanana 模型能力定义
- * 严格对应 Google 官方文档，不携带任何多余参数
- */
-interface NanoBananaModelCapabilities {
-  /** 底层模型名称 */
-  modelName: string
-  /** 模型类型标识 */
-  modelType: 'nanobanana' | 'nanobanana-pro' | 'nanobanana-2'
-  /** 显示名称 */
-  displayName: string
-  /** 默认宽高比 */
-  defaultAspectRatio: string
-  /** 尺寸选项（界面展示值） */
-  sizeOptions: { label: string; value: string }[]
-  /** 支持的宽高比列表 */
-  supportedAspectRatios: string[]
-  /** 是否支持联网搜索 (Google Search) */
-  supportsWebSearch: boolean
-  /** 是否支持图片搜索 (Image Search) */
-  supportsImageSearch: boolean
-  /** 是否支持思考模式 (Thinking) */
-  supportsThinking: boolean
-  /** 默认思考模式 */
-  defaultThinkingMode?: 'fast' | 'medium' | 'deep'
-}
-
-/**
- * NanoBanana 模型配置表
- * 严格遵循 Google 官方文档：
- * - gemini-2.5-flash-image: 基础模型，无搜索/思考
- * - gemini-3-pro-image-preview: Pro 模型，仅支持联网搜索
- * - gemini-3.1-flash-image-preview: 2 代模型，全功能支持
- */
-const nanoBananaModelCapabilities: Record<string, NanoBananaModelCapabilities> = {
-  // NanoBanana: gemini-2.5-flash-image
-  // 官方限制：仅支持基础尺寸 1K，无搜索/思考功能
-  'nanobanana': {
-    modelName: 'gemini-2.5-flash-image',
-    modelType: 'nanobanana',
-    displayName: 'NanoBanana',
-    defaultAspectRatio: '1:1',
-    sizeOptions: [
-      { label: '1K 标准', value: '1K' },
-    ],
-    supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
-    supportsWebSearch: false,   // 官方明确不支持
-    supportsImageSearch: false, // 官方明确不支持
-    supportsThinking: false,     // 官方明确不支持
-  },
-  // NanoBanana Pro: gemini-3-pro-image-preview
-  // 官方限制：支持 1K/2K/4K，仅支持联网搜索，无图片搜索/思考
-  'nanobanana-pro': {
-    modelName: 'gemini-3-pro-image-preview',
-    modelType: 'nanobanana-pro',
-    displayName: 'NanoBanana Pro',
-    defaultAspectRatio: '1:1',
-    sizeOptions: [
-      { label: '1K 标准', value: '1K' },
-      { label: '2K 高清', value: '2K' },
-      { label: '4K 超清', value: '4K' },
-    ],
-    supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
-    supportsWebSearch: true,    // 支持联网搜索
-    supportsImageSearch: false, // 不支持图片搜索
-    supportsThinking: false,    // 不支持思考模式
-  },
-  // NanoBanana 2: gemini-3.1-flash-image-preview
-  // 官方限制：全功能支持，包含极端宽高比 (1:4, 4:1, 1:8, 8:1) 和全分辨率
-  'nanobanana-2': {
-    modelName: 'gemini-3.1-flash-image-preview',
-    modelType: 'nanobanana-2',
-    displayName: 'NanoBanana 2',
-    defaultAspectRatio: '1:1',
-    sizeOptions: [
-      { label: '512 极速', value: '512' },
-      { label: '1K 标准', value: '1K' },
-      { label: '2K 高清', value: '2K' },
-      { label: '4K 超清', value: '4K' },
-    ],
-    supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:4', '4:1', '1:8', '8:1'],
-    supportsWebSearch: true,    // 支持联网搜索
-    supportsImageSearch: true,   // 支持图片搜索
-    supportsThinking: true,     // 支持思考模式
-    defaultThinkingMode: 'fast',
-  },
-}
-
-/**
- * 获取当前 NanoBanana 模型能力配置
- */
-const currentNanoBananaCapabilities = computed(() => {
-  if (!isNanoBananaModel.value) return null
-  const modelType = selectedAimodel.value?.modelType
-  return modelType ? nanoBananaModelCapabilities[modelType] || null : null
-})
-
 /**
  * 尺寸标签映射（用于显示）
  */
@@ -250,7 +149,7 @@ const sizeLabelMap: Record<string, string> = {
  * 宽高比标签映射
  */
 const aspectRatioLabelMap: Record<string, string> = {
-  'auto': '自动',
+  'auto': '自动（默认1:1）',
   '1:1': '1:1 正方形',
   '2:3': '2:3 竖版',
   '3:2': '3:2 横版',
@@ -364,38 +263,41 @@ const selectedAimodel = computed((): Aimodel | undefined => {
 })
 
 // 是否支持垫图（部分模型不支持）
-// 获取当前模型的能力（优先使用模型自定义配置）
+// 获取当前模型的能力（信任管理员在配置页面设置的 uiCapabilities）
 const capabilities = computed(() => {
   if (!selectedAimodel.value) return {}
   // 优先使用模型的 uiCapabilities 配置
   const uiCaps = (selectedAimodel.value as any).uiCapabilities
-  if (uiCaps && Object.keys(uiCaps).length > 0) {
+
+  // 如果有 uiCapabilities，信任管理员的配置
+  if (uiCaps && typeof uiCaps === 'object') {
     return {
       referenceImage: uiCaps.referenceImage ?? false,
       negativePrompt: uiCaps.negativePrompt ?? false,
       size: (uiCaps?.sizes?.length ?? 0) > 0,
       quality: uiCaps.quality ?? false,
       style: uiCaps.style ?? false,
-      aspectRatio: uiCaps.aspectRatios?.length > 0 ?? false,
+      aspectRatio: (uiCaps?.aspectRatios?.length ?? 0) > 0,
       seed: uiCaps.seed ?? false,
       guidance: uiCaps.guidance ?? false,
       watermark: uiCaps.watermark ?? false,
       background: uiCaps.background ?? false,
     }
   }
-  // 回退到默认能力推断
+
+  // 如果没有 uiCapabilities，回退到默认推断
   const defaultCaps = getModelCapabilities(selectedAimodel.value.modelType as ImageModelType)
-  // 如果是 NanoBanana 模型，强制启用这些 UI 能力
+
+  // NanoBanana 模型默认关闭负面提示词（官方不支持）
   if (isNanoBananaModel.value) {
     return {
       ...defaultCaps,
       referenceImage: true,
-      negativePrompt: true,
-      size: true,
-      quality: true,
+      negativePrompt: false,  // Google 模型官方不支持负面提示词
       aspectRatio: true,
     }
   }
+
   return defaultCaps
 })
 
@@ -404,8 +306,12 @@ const supportsReferenceImages = computed(() => {
   return capabilities.value.referenceImage === true
 })
 
-// 是否支持负面提示词
+// 是否支持负面提示词（NanoBanana 模型强制不支持）
 const supportsNegativePrompt = computed(() => {
+  // NanoBanana 模型官方不支持负面提示词
+  if (isNanoBananaModel.value) {
+    return false
+  }
   return capabilities.value.negativePrompt === true
 })
 
@@ -416,10 +322,19 @@ const isFluxModel = computed(() => selectedAimodel.value?.modelType === 'flux')
 const isGpt4oImageModel = computed(() => selectedAimodel.value?.modelType === 'gpt4o-image')
 const isGeminiModel = computed(() => ['gemini', 'banana'].includes(selectedAimodel.value?.modelType || ''))
 
-// NanoBanana 模型判断 - 这些模型需要强制启用宽高比、尺寸、参考图、联网搜索等 UI 能力
+// NanoBanana 模型判断（支持模型类型和模型名称识别）
 const isNanoBananaModel = computed(() => {
   const modelType = selectedAimodel.value?.modelType || ''
-  return ['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(modelType)
+  // 1. 先按模型类型判断
+  if (['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(modelType)) {
+    return true
+  }
+  // 2. 按模型名称关键字判断
+  const modelName = selectedAimodel.value?.modelName?.toLowerCase() || ''
+  return modelName.includes('nanobanana') ||
+         modelName.includes('gemini-2.5') ||
+         modelName.includes('gemini-3-pro') ||
+         modelName.includes('gemini-3.1')
 })
 
 // 是否支持各参数
@@ -439,48 +354,41 @@ const supportsWatermark = computed(() => capabilities.value.watermark === true)
 
 const supportsBackground = computed(() => capabilities.value.background === true)
 
-// 是否支持思考模式（严格按模型能力）
+// 是否支持思考模式（信任管理员的 uiCapabilities 配置）
 const supportsThinkingMode = computed(() => {
-  // NanoBanana 模型严格按配置返回
-  if (isNanoBananaModel.value) {
-    const caps = currentNanoBananaCapabilities.value
-    return caps?.supportsThinking ?? false
-  }
-  // 其他模型检查 uiCapabilities
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
-  return uiCaps?.thinkingModes?.length > 0 ?? false
+  // 优先检查 thinkingModesEnabled（布尔值）
+  if (uiCaps?.thinkingModesEnabled !== undefined) {
+    return uiCaps.thinkingModesEnabled === true
+  }
+  // 回退检查 thinkingModes（数组）
+  if (uiCaps?.thinkingModes !== undefined) {
+    return (uiCaps.thinkingModes?.length ?? 0) > 0
+  }
+  return false
 })
 
-// 思考模式选项（NanoBanana 模型使用内置选项，其他模型使用 uiCapabilities）
+// 思考模式选项（信任管理员的 uiCapabilities 配置）
 const thinkingModeOptions = computed(() => {
-  // NanoBanana 模型使用内置选项
-  if (isNanoBananaModel.value) {
-    const caps = currentNanoBananaCapabilities.value
-    if (caps?.supportsThinking) {
-      return [
-        { label: '快速（默认）', value: 'fast' },
-        { label: '深度思考', value: 'deep' },
-      ]
-    }
-    return []
-  }
-  // 其他模型使用 uiCapabilities
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
-  if (!uiCaps?.thinkingModes) return []
-  return uiCaps.thinkingModes.map((m: string) => ({
-    label: m === 'fast' ? '快速' : m === 'medium' ? '中等' : m === 'deep' ? '深度思考' : m,
-    value: m
-  }))
+  if (uiCaps?.thinkingModes && uiCaps.thinkingModes.length > 0) {
+    return uiCaps.thinkingModes.map((m: string) => ({
+      label: m === 'fast' ? '快速（默认）' : m === 'medium' ? '中等' : m === 'deep' ? '深度思考' : m,
+      value: m
+    }))
+  }
+  // 如果启用了 thinkingModesEnabled 但没有具体选项，提供默认选项
+  if (uiCaps?.thinkingModesEnabled === true) {
+    return [
+      { label: '快速（默认）', value: 'fast' },
+      { label: '深度思考', value: 'deep' },
+    ]
+  }
+  return []
 })
 
-// 是否支持 Google 搜索（严格按模型能力）
+// 是否支持 Google 搜索（信任管理员的 uiCapabilities 配置）
 const supportsWebSearch = computed(() => {
-  // NanoBanana 模型严格按配置返回
-  if (isNanoBananaModel.value) {
-    const caps = currentNanoBananaCapabilities.value
-    return caps?.supportsWebSearch ?? false
-  }
-  // 其他模型检查 uiCapabilities
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.webSearch !== undefined) {
     return uiCaps.webSearch === true
@@ -488,14 +396,8 @@ const supportsWebSearch = computed(() => {
   return false
 })
 
-// 是否支持图片搜索（严格按模型能力）
+// 是否支持图片搜索（信任管理员的 uiCapabilities 配置）
 const supportsImageSearch = computed(() => {
-  // NanoBanana 模型严格按配置返回
-  if (isNanoBananaModel.value) {
-    const caps = currentNanoBananaCapabilities.value
-    return caps?.supportsImageSearch ?? false
-  }
-  // 其他模型检查 uiCapabilities
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.imageSearch !== undefined) {
     return uiCaps.imageSearch === true
@@ -503,14 +405,9 @@ const supportsImageSearch = computed(() => {
   return false
 })
 
-// 获取当前模型的尺寸选项（NanoBanana 严格按配置，其他模型使用 uiCapabilities 或默认）
+// 获取当前模型的尺寸选项（信任管理员的 uiCapabilities 配置）
 const currentSizeOptions = computed(() => {
-  // NanoBanana 模型：严格使用专属配置
-  if (isNanoBananaModel.value && currentNanoBananaCapabilities.value) {
-    return currentNanoBananaCapabilities.value.sizeOptions
-  }
-
-  // 优先使用模型自定义的尺寸配置
+  // 优先使用模型自定义的尺寸配置（管理员配置的 uiCapabilities）
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.sizes?.length > 0) {
     return uiCaps.sizes.map((s: string) => ({
@@ -519,7 +416,7 @@ const currentSizeOptions = computed(() => {
     }))
   }
 
-  // 回退到默认选项
+  // 回退到模型类型默认选项
   if (isDalleModel.value) return dalleSizeOptions
   if (isDoubaoModel.value) return doubaoSizeOptions
   if (isGpt4oImageModel.value) return gptImageSizeOptions
@@ -527,17 +424,9 @@ const currentSizeOptions = computed(() => {
   return dalleSizeOptions
 })
 
-// 获取当前模型的宽高比选项（NanoBanana 严格按配置，其他模型使用 uiCapabilities 或默认）
+// 获取当前模型的宽高比选项（信任管理员的 uiCapabilities 配置）
 const currentAspectRatioOptions = computed(() => {
-  // NanoBanana 模型：严格使用专属配置
-  if (isNanoBananaModel.value && currentNanoBananaCapabilities.value) {
-    return currentNanoBananaCapabilities.value.supportedAspectRatios.map(r => ({
-      label: aspectRatioLabelMap[r] || r,
-      value: r
-    }))
-  }
-
-  // 优先使用模型自定义的宽高比配置
+  // 优先使用模型自定义的宽高比配置（管理员配置的 uiCapabilities）
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.aspectRatios?.length > 0) {
     return uiCaps.aspectRatios.map((r: string) => ({
@@ -549,47 +438,24 @@ const currentAspectRatioOptions = computed(() => {
   return defaultAspectRatioOptions
 })
 
-// 监听 NanoBanana 模型变化，加载专属能力配置
-watch(() => selectedAimodel.value?.modelType, (newModelType, oldModelType) => {
-  // 非 NanoBanana 模型，不处理
-  if (!newModelType || !['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(newModelType)) return
-
-  // 模型切换时，严格按该模型的能力配置重置参数
-  if (newModelType !== oldModelType) {
-    const caps = nanoBananaModelCapabilities[newModelType]
-    if (caps) {
-      // 设置该模型专属的尺寸选项（强制使用第一个）
-      size.value = caps.sizeOptions[0]?.value || '1K'
-      // 设置该模型专属的宽高比
-      aspectRatio.value = caps.defaultAspectRatio
-      // 重置搜索开关（严格按模型能力）
-      enableWebSearch.value = false
-      enableImageSearch.value = false
-      // 设置思考模式默认值
-      thinkingMode.value = caps.defaultThinkingMode || 'fast'
-    }
-    // 重置其他可能残留的参数
+// 监听模型变化，当切换模型时重置可能不适用的参数
+watch([() => selectedAimodel.value?.modelType, () => selectedAimodel.value?.id],
+  () => {
+    // 重置所有可能残留的参数到默认值
     negativePrompt.value = ''
     seed.value = -1
     guidanceScale.value = 2.5
     watermark.value = false
-  }
-}, { immediate: true })
-
-// 监听模型变化，重置可能的残留参数（非 NanoBanana 模型）
-watch(() => selectedAimodel.value?.modelType, (newModelType, oldModelType) => {
-  // NanoBanana 模型已经在上面的 watch 中处理
-  if (!newModelType || ['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(newModelType)) return
-
-  // 切换到非 NanoBanana 模型时，重置搜索开关
-  if (newModelType !== oldModelType) {
+    background.value = 'auto'
     enableWebSearch.value = false
     enableImageSearch.value = false
-  }
-})
+    thinkingMode.value = 'fast'
+
+    // 尺寸和宽高比会在 watch currentSizeOptions/currentAspectRatioOptions 中自动调整
+  }, { immediate: true })
 
 // 监听尺寸选项变化，自动选择第一个有效选项
-watch([currentSizeOptions, () => selectedAimodel.value], () => {
+watch([currentSizeOptions, () => selectedAimodel.value?.id], () => {
   if (!selectedAimodel.value || !supportsSize.value) return
   const options = currentSizeOptions.value
   if (!options.length) return
@@ -603,35 +469,11 @@ watch([currentSizeOptions, () => selectedAimodel.value], () => {
 watch(currentAspectRatioOptions, (options) => {
   if (!selectedAimodel.value || !supportsAspectRatio.value) return
   if (!options.length) return
-  // 检查当前宽高比是否在选项中，不在则使用默认值（NanoBanana 用 1:1，其他用 auto）
+  // 检查当前宽高比是否在选项中，不在则使用第一个选项
   if (!options.some(option => option.value === aspectRatio.value)) {
-    if (isNanoBananaModel.value) {
-      aspectRatio.value = '1:1'
-    } else {
-      aspectRatio.value = 'auto'
-    }
+    aspectRatio.value = options[0].value
   }
 }, { immediate: true })
-
-// 旧逻辑保留（兼容非 NanoBanana 模型切换时的重置）
-watch(selectedAimodelId, (newId, oldId) => {
-  // 首次加载或未切换时不重置
-  if (oldId === null || newId === oldId) return
-  // NanoBanana 模型已经在上面处理
-  if (isNanoBananaModel.value) return
-  // 重置所有模型参数到默认值（非 NanoBanana）
-  size.value = '1024x1024'
-  quality.value = 'standard'
-  style.value = 'vivid'
-  aspectRatio.value = 'auto'
-  seed.value = -1
-  guidanceScale.value = 2.5
-  watermark.value = false
-  background.value = 'auto'
-  negativePrompt.value = ''
-  enableWebSearch.value = false
-  enableImageSearch.value = false
-})
 
 // 获取当前模型的质量选项
 const currentQualityOptions = computed(() => {

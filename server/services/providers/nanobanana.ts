@@ -14,6 +14,20 @@ import { classifyFetchError, extractFetchErrorInfo, ERROR_MESSAGES } from '../er
 import type { Aimodel } from '../../database/schema'
 import { resolveUpstreamConnection } from '../providerConnection'
 
+// ============================================================
+// 调试日志配置
+// ============================================================
+const DEBUG_NANOBANANA = process.env.DEBUG_NANOBANANA === 'true'
+function debugLog(...args: any[]) {
+  if (DEBUG_NANOBANANA) {
+    console.log('[NanoBanana DEBUG]', ...args)
+  }
+}
+
+// ============================================================
+// 类型定义
+// ============================================================
+
 interface GeminiGenerateContentResponse {
   candidates?: Array<{
     content?: {
@@ -132,9 +146,9 @@ function getNanoBananaApiFormat(apiFormat: string): NanoBananaApiFormat {
   return 'nanobanana'
 }
 
-// ============================================================================
+// ============================================================
 // 分辨率和宽高比映射
-// ============================================================================
+// ============================================================
 
 /**
  * 分辨率到像素尺寸的映射（用于 Gemini API）
@@ -174,7 +188,7 @@ function getValidResolution(resolution: string | undefined, modelCapabilities: N
   if (modelCapabilities.supportedResolutions.includes(resolution)) {
     return resolution
   }
-  // 返回模型支持的第一个分辨率
+  debugLog(`[Resolution] 无效分辨率 "${resolution}"，使用默认值 "${modelCapabilities.supportedResolutions[0] || '1K'}"`)
   return modelCapabilities.supportedResolutions[0] || '1K'
 }
 
@@ -189,6 +203,7 @@ function getValidAspectRatio(aspectRatio: string | undefined, modelCapabilities:
   if (ASPECT_RATIO_MAP[aspectRatio] && modelCapabilities.supportedAspectRatios.includes(aspectRatio)) {
     return aspectRatio
   }
+  debugLog(`[AspectRatio] 无效宽高比 "${aspectRatio}"，不使用`)
   return undefined
 }
 
@@ -201,9 +216,40 @@ function extractBase64(dataUrl: string): { mimeType: string; data: string } {
   return { mimeType: 'image/png', data: dataUrl }
 }
 
-// ============================================================================
+/**
+ * 彻底清理废弃字段
+ * 移除任何 Midjourney 或其他不支持的字段
+ */
+function sanitizeModelParams(modelParams: any): any {
+  if (!modelParams) return {}
+
+  const allowedFields = [
+    'size',           // NanoBanana 支持
+    'aspectRatio',    // NanoBanana 支持
+    'webSearch',      // NanoBanana Pro/2 支持
+    'imageSearch',    // NanoBanana 2 支持
+    'thinkingMode',   // NanoBanana 2 支持
+  ]
+
+  const sanitized: any = {}
+  for (const key of allowedFields) {
+    if (key in modelParams) {
+      sanitized[key] = modelParams[key]
+    }
+  }
+
+  // 检查是否有被移除的废弃字段
+  const removedFields = Object.keys(modelParams).filter(k => !allowedFields.includes(k))
+  if (removedFields.length > 0) {
+    debugLog(`[Sanitize] 已移除废弃字段:`, removedFields)
+  }
+
+  return sanitized
+}
+
+// ============================================================
 // Gemini 原生格式 Provider
-// ============================================================================
+// ============================================================
 
 /**
  * 构建 Gemini 原生格式的请求体
@@ -266,7 +312,10 @@ function buildGeminiNativeRequest(params: {
 
   // 思考模式（仅 NanoBanana 2 支持）
   if (modelCapabilities.supportsThinking && thinkingMode) {
+    debugLog(`[ThinkingMode] NanoBanana 2 启用思考模式: ${thinkingMode}`)
     generationConfig.thinkingMode = thinkingMode
+  } else if (thinkingMode && !modelCapabilities.supportsThinking) {
+    debugLog(`[ThinkingMode] 模型 ${modelCapabilities.modelType} 不支持思考模式，忽略`)
   }
 
   // 构建请求体
@@ -276,7 +325,6 @@ function buildGeminiNativeRequest(params: {
   }
 
   // 严格按模型能力添加工具（tools）
-  // 绝对不为 NanoBanana (2.5) 添加任何 tools 字段
   if (modelCapabilities.supportsWebSearch || modelCapabilities.supportsImageSearch) {
     const tools: Record<string, unknown>[] = []
 
@@ -284,7 +332,7 @@ function buildGeminiNativeRequest(params: {
     const canUseImageSearch = modelCapabilities.supportsImageSearch && enableImageSearch
 
     if (canUseWebSearch && canUseImageSearch) {
-      // 同时启用网页搜索和图片搜索
+      debugLog(`[Tools] 启用网页搜索 + 图片搜索`)
       tools.push({
         google_search: {
           searchTypes: {
@@ -294,7 +342,7 @@ function buildGeminiNativeRequest(params: {
         },
       })
     } else if (canUseImageSearch) {
-      // 仅启用图片搜索
+      debugLog(`[Tools] 启用图片搜索`)
       tools.push({
         google_search: {
           searchTypes: {
@@ -303,7 +351,7 @@ function buildGeminiNativeRequest(params: {
         },
       })
     } else if (canUseWebSearch) {
-      // 仅启用网页搜索
+      debugLog(`[Tools] 启用网页搜索`)
       tools.push({
         google_search: {},
       })
@@ -312,17 +360,16 @@ function buildGeminiNativeRequest(params: {
     if (tools.length > 0) {
       body.tools = tools
     }
+  } else {
+    debugLog(`[Tools] 模型不支持搜索功能，忽略 webSearch=${enableWebSearch}, imageSearch=${enableImageSearch}`)
   }
-
-  // 绝对不为不支持搜索的模型添加 tools
-  // （即使前端错误地发送了 enableWebSearch=true，也会被忽略）
 
   return body
 }
 
-// ============================================================================
+// ============================================================
 // OpenAI 兼容格式 Provider
-// ============================================================================
+// ============================================================
 
 /**
  * 构建 OpenAI 兼容格式的请求体
@@ -400,16 +447,23 @@ function buildOpenAICompatibleRequest(params: {
     body.aspect_ratio = validAspectRatio
   }
 
-  // 添加工具配置（严格按模型能力）
-  // 绝对不为 NanoBanana (2.5) 添加任何 tools
-  if (modelCapabilities.supportsWebSearch || modelCapabilities.supportsImageSearch) {
-    const tools: Record<string, unknown>[] = []
+  // 思考模式（仅 NanoBanana 2 支持）
+  if (modelCapabilities.supportsThinking && thinkingMode) {
+    debugLog(`[ThinkingMode] NanoBanana 2 OpenAI 格式启用思考模式: ${thinkingMode}`)
+    body.thinking_mode = thinkingMode
+  } else if (thinkingMode && !modelCapabilities.supportsThinking) {
+    debugLog(`[ThinkingMode] 模型 ${modelCapabilities.modelType} 不支持思考模式，忽略`)
+  }
 
+  // 添加工具配置（严格按模型能力）
+  if (modelCapabilities.supportsWebSearch || modelCapabilities.supportsImageSearch) {
     const canUseWebSearch = modelCapabilities.supportsWebSearch && enableWebSearch
     const canUseImageSearch = modelCapabilities.supportsImageSearch && enableImageSearch
 
     if (canUseWebSearch || canUseImageSearch) {
-      tools.push({
+      debugLog(`[Tools] OpenAI 格式启用搜索工具`)
+
+      body.tools = [{
         type: 'function',
         function: {
           name: 'google_search',
@@ -421,17 +475,10 @@ function buildOpenAICompatibleRequest(params: {
             },
           },
         },
-      })
-
-      if (tools.length > 0) {
-        body.tools = tools
-      }
+      }]
     }
-  }
-
-  // 思考模式（仅 NanoBanana 2 支持）
-  if (modelCapabilities.supportsThinking && thinkingMode) {
-    body.thinking_mode = thinkingMode
+  } else {
+    debugLog(`[Tools] 模型不支持搜索功能，忽略 webSearch=${enableWebSearch}, imageSearch=${enableImageSearch}`)
   }
 
   return body
@@ -514,6 +561,9 @@ export const nanoBananaProvider: SyncProvider = {
       const effectiveModelName = getEffectiveModelName(modelName)
       const url = `${baseUrl}/v1beta/models/${effectiveModelName}:generateContent`
 
+      // 清理废弃字段，只保留 NanoBanana 支持的参数
+      const cleanParams = sanitizeModelParams(modelParams)
+
       // 提取参考图
       const imageData = images && images.length > 0 ? extractImageData(images[0]) : undefined
 
@@ -521,17 +571,25 @@ export const nanoBananaProvider: SyncProvider = {
       const body = buildGeminiNativeRequest({
         prompt,
         modelName: effectiveModelName,
-        resolution: modelParams?.size,
-        aspectRatio: modelParams?.aspectRatio,
+        resolution: cleanParams.size,
+        aspectRatio: cleanParams.aspectRatio,
         base64Image: imageData?.data,
         mimeType: imageData?.mimeType,
-        enableWebSearch: modelParams?.webSearch,
-        enableImageSearch: modelParams?.imageSearch,
-        thinkingMode: modelParams?.thinkingMode,
+        enableWebSearch: cleanParams.webSearch,
+        enableImageSearch: cleanParams.imageSearch,
+        thinkingMode: cleanParams.thinkingMode,
         modelCapabilities,
       })
 
       const startTime = Date.now()
+
+      // Debug 日志：打印最终发送的请求体
+      debugLog(`[Gemini Native] Task #${taskId}`)
+      debugLog(`[Gemini Native] 模型: ${effectiveModelName}`)
+      debugLog(`[Gemini Native] 原始参数:`, modelParams)
+      debugLog(`[Gemini Native] 清理后参数:`, cleanParams)
+      debugLog(`[Gemini Native] 最终请求体:`, JSON.stringify(body, null, 2))
+
       logTaskRequest(taskId, { url, method: 'POST', headers, body })
 
       try {
@@ -597,6 +655,9 @@ export const nanoBananaProvider: SyncProvider = {
       const effectiveModelName = getEffectiveModelName(modelName)
       const url = `${baseUrl}/v1/chat/completions`
 
+      // 清理废弃字段，只保留 NanoBanana 支持的参数
+      const cleanParams = sanitizeModelParams(modelParams)
+
       // 提取参考图
       const imageData = images && images.length > 0 ? images[0] : undefined
 
@@ -604,16 +665,24 @@ export const nanoBananaProvider: SyncProvider = {
       const body = buildOpenAICompatibleRequest({
         prompt,
         modelName: effectiveModelName,
-        resolution: modelParams?.size,
-        aspectRatio: modelParams?.aspectRatio,
+        resolution: cleanParams.size,
+        aspectRatio: cleanParams.aspectRatio,
         base64Image: imageData,
-        enableWebSearch: modelParams?.webSearch,
-        enableImageSearch: modelParams?.imageSearch,
-        thinkingMode: modelParams?.thinkingMode,
+        enableWebSearch: cleanParams.webSearch,
+        enableImageSearch: cleanParams.imageSearch,
+        thinkingMode: cleanParams.thinkingMode,
         modelCapabilities,
       })
 
       const startTime = Date.now()
+
+      // Debug 日志：打印最终发送的请求体
+      debugLog(`[OpenAI Compatible] Task #${taskId}`)
+      debugLog(`[OpenAI Compatible] 模型: ${effectiveModelName}`)
+      debugLog(`[OpenAI Compatible] 原始参数:`, modelParams)
+      debugLog(`[OpenAI Compatible] 清理后参数:`, cleanParams)
+      debugLog(`[OpenAI Compatible] 最终请求体:`, JSON.stringify(body, null, 2))
+
       logTaskRequest(taskId, { url, method: 'POST', headers, body })
 
       try {

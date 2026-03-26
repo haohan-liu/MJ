@@ -169,6 +169,44 @@ watch(() => form.modelName, (newName) => {
   }
 })
 
+/**
+ * 监听图片模型名称变化，自动推断 NanoBanana 模型能力
+ */
+watch(() => form.modelName, (newName) => {
+  if (form.category !== 'image') return
+  if (!newName) return
+
+  const name = newName.toLowerCase()
+  const constraints = getNanoBananaConstraintsByName(name)
+
+  if (constraints) {
+    // 识别为 NanoBanana 模型，自动设置 uiCapabilities
+    uiCaps.referenceImage = true
+    uiCaps.aspectRatios = [...constraints.supportedAspectRatios]
+    uiCaps.sizes = [...constraints.supportedSizes]
+    uiCaps.webSearch = constraints.supportsWebSearch
+    uiCaps.imageSearch = constraints.supportsImageSearch
+    uiCaps.thinkingModesEnabled = constraints.supportsThinking
+  }
+})
+
+/**
+ * 根据模型名称获取 NanoBanana 约束
+ */
+function getNanoBananaConstraintsByName(modelName: string): NanoBananaModelConstraints | null {
+  const name = modelName.toLowerCase()
+  if (name.includes('nanobanana-2') || name.includes('gemini-3.1')) {
+    return NANOBANANA_CONSTRAINTS['nanobanana-2']
+  }
+  if (name.includes('nanobanana-pro') || name.includes('gemini-3-pro')) {
+    return NANOBANANA_CONSTRAINTS['nanobanana-pro']
+  }
+  if (name.includes('nanobanana') || name.includes('gemini-2.5')) {
+    return NANOBANANA_CONSTRAINTS['nanobanana']
+  }
+  return null
+}
+
 // 能力选项
 const capabilityOptions: { label: string; value: ModelCapability; icon: string }[] = [
   { label: '视觉', value: 'vision', icon: 'i-heroicons-eye' },
@@ -250,7 +288,7 @@ const NANOBANANA_CONSTRAINTS: Record<string, NanoBananaModelConstraints> = {
     modelType: 'nanobanana',
     displayName: 'NanoBanana',
     supportedSizes: ['1K'],
-    supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
+    supportedAspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
     supportsWebSearch: false,
     supportsImageSearch: false,
     supportsThinking: false,
@@ -261,7 +299,7 @@ const NANOBANANA_CONSTRAINTS: Record<string, NanoBananaModelConstraints> = {
     modelType: 'nanobanana-pro',
     displayName: 'NanoBanana Pro',
     supportedSizes: ['1K', '2K', '4K'],
-    supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
+    supportedAspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
     supportsWebSearch: true,
     supportsImageSearch: false,
     supportsThinking: false,
@@ -272,27 +310,12 @@ const NANOBANANA_CONSTRAINTS: Record<string, NanoBananaModelConstraints> = {
     modelType: 'nanobanana-2',
     displayName: 'NanoBanana 2',
     supportedSizes: ['512', '1K', '2K', '4K'],
-    supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:4', '4:1', '1:8', '8:1'],
+    supportedAspectRatios: ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:4', '4:1', '1:8', '8:1'],
     supportsWebSearch: true,
     supportsImageSearch: true,
     supportsThinking: true,
   },
 }
-
-/**
- * 判断是否为 NanoBanana 模型
- */
-const isNanoBananaModel = computed(() => {
-  return ['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(form.modelType)
-})
-
-/**
- * 获取当前 NanoBanana 模型的约束
- */
-const currentNanoBananaConstraints = computed(() => {
-  if (!isNanoBananaModel.value) return null
-  return NANOBANANA_CONSTRAINTS[form.modelType] || null
-})
 
 /**
  * NanoBanana 模型尺寸标签映射
@@ -346,15 +369,68 @@ const nanoBananaAspectRatioOptions = computed(() => {
 })
 
 // ============================================================
-// Google/NanoBanana 模型识别
+// Google/NanoBanana 模型识别（支持模型类型和模型名称双重识别）
 // ============================================================
 
 /**
- * 判断是否为 Google 系列模型
+ * 判断模型名称是否包含 Google/NanoBanana 关键字
+ */
+const modelNameContainsGoogleKeyword = computed(() => {
+  const name = form.modelName?.toLowerCase() || ''
+  return name.includes('gemini') || name.includes('nanobanana')
+})
+
+/**
+ * 判断是否为 NanoBanana 模型（支持类型和名称识别）
+ */
+const isNanoBananaModel = computed(() => {
+  // 1. 先按模型类型判断
+  if (['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(form.modelType)) {
+    return true
+  }
+  // 2. 按模型名称关键字判断（nanobanana 系列）
+  const name = form.modelName?.toLowerCase() || ''
+  return name.includes('nanobanana')
+})
+
+/**
+ * 判断是否为 Google 系列图像模型（支持类型和名称识别）
  * 包括：gemini、nanobanana、nanobanana-pro、nanobanana-2
  */
 const isGoogleImageModel = computed(() => {
-  return ['gemini', 'nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(form.modelType)
+  // NanoBanana 模型已经在上面单独处理
+  if (isNanoBananaModel.value) {
+    return true
+  }
+  // 1. 先按模型类型判断
+  if (['gemini'].includes(form.modelType)) {
+    return true
+  }
+  // 2. 按模型名称关键字判断（gemini 系列，但排除 nanobanana）
+  const name = form.modelName?.toLowerCase() || ''
+  return name.includes('gemini') && !name.includes('nanobanana')
+})
+
+/**
+ * 获取当前 NanoBanana 模型的约束
+ */
+const currentNanoBananaConstraints = computed(() => {
+  // 优先按模型类型获取约束
+  if (['nanobanana', 'nanobanana-pro', 'nanobanana-2'].includes(form.modelType)) {
+    return NANOBANANA_CONSTRAINTS[form.modelType] || null
+  }
+  // 按模型名称获取约束
+  const name = form.modelName?.toLowerCase() || ''
+  if (name.includes('nanobanana-2') || name.includes('gemini-3.1')) {
+    return NANOBANANA_CONSTRAINTS['nanobanana-2']
+  }
+  if (name.includes('nanobanana-pro') || name.includes('gemini-3-pro')) {
+    return NANOBANANA_CONSTRAINTS['nanobanana-pro']
+  }
+  if (name.includes('nanobanana') || name.includes('gemini-2.5')) {
+    return NANOBANANA_CONSTRAINTS['nanobanana']
+  }
+  return null
 })
 
 /**
@@ -404,10 +480,34 @@ const currentSizeOptions = computed(() => {
 
 // 保存
 function onSave() {
-  // 检查 uiCaps 是否有值，有则保存
-  const hasUiCaps = Object.values(uiCaps).some(v => v !== undefined && v !== null && v !== false && (Array.isArray(v) ? v.length > 0 : true))
-  form.uiCapabilities = hasUiCaps ? { ...uiCaps } : null
-  
+  // 对于 NanoBanana 模型，强制设置 negativePrompt 为 false
+  // 因为 NanoBanana 配置界面不显示负面提示词选项，需要显式设置
+  if (isNanoBananaModel.value) {
+    uiCaps.negativePrompt = false
+  }
+
+  // 构建 uiCapabilities 对象（包含所有显式设置的值，包括 false）
+  // 确保 NanoBanana 模型的 negativePrompt: false 被保存
+  const uiCapsToSave: Record<string, any> = {}
+  const knownKeys = ['negativePrompt', 'quality', 'style', 'seed', 'guidance',
+                     'watermark', 'background', 'referenceImage', 'webSearch',
+                     'imageSearch', 'thinkingModesEnabled', 'sizes', 'aspectRatios']
+
+  for (const key of knownKeys) {
+    if (key in uiCaps) {
+      uiCapsToSave[key] = (uiCaps as any)[key]
+    }
+  }
+
+  // 对于 NanoBanana 模型，确保 negativePrompt: false 被添加到保存对象
+  if (isNanoBananaModel.value) {
+    uiCapsToSave.negativePrompt = false
+  }
+
+  // 检查是否有任何配置
+  const hasUiCaps = Object.keys(uiCapsToSave).length > 0
+  form.uiCapabilities = hasUiCaps ? uiCapsToSave : null
+
   emit('save', { ...form })
   open.value = false
 }
@@ -589,9 +689,9 @@ function onSave() {
                 <span class="text-sm text-(--ui-text)">启用图片搜索</span>
               </label>
 
-              <!-- 思考模式（仅 nanobanana-2 支持，启用后默认提供快速/深度选项） -->
+              <!-- 思考模式（仅 nanobanana-2 支持） -->
               <label v-if="form.modelType === 'nanobanana-2'" class="flex items-center gap-2 cursor-pointer">
-                <UCheckbox v-model="uiCaps.thinkingModes" />
+                <UCheckbox v-model="uiCaps.thinkingModesEnabled" />
                 <span class="text-sm text-(--ui-text)">启用思考模式（快速/深度）</span>
               </label>
             </div>
