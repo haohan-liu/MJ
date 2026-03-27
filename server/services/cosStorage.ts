@@ -1,4 +1,4 @@
-﻿// 腾讯云 COS 存储服务
+// 腾讯云 COS 存储服务
 import COS from 'cos-nodejs-sdk-v5'
 import { useSiteSettingsService } from '../services/siteSettings'
 import { SITE_SETTING_KEYS } from '../../app/shared/constants'
@@ -60,9 +60,9 @@ export async function uploadToCos(
     console.error('[COS] 配置不完整，无法上传')
     return null
   }
-  
+
   const cos = createCosClient(config)
-  
+
   return new Promise((resolve, reject) => {
     cos.putObject({
       Bucket: config.bucket,
@@ -76,10 +76,12 @@ export async function uploadToCos(
         reject(err)
         return
       }
-      
-      // 只返回 key，不生成签名 URL（签名 URL 有有效期，存入数据库会过期）
-      // 需要访问时通过 getCosSignedUrl(key) 动态生成
-      resolve({ url: key, key })
+
+      // 生成公网访问 URL
+      // 格式: https://bucket.cos.region.myqcloud.com/key
+      const url = `https://${config.bucket}.cos.${config.region}.myqcloud.com/${key}`
+      console.log('[COS] 已上传:', key, '->', url)
+      resolve({ url, key })
     })
   })
 }
@@ -171,13 +173,45 @@ export async function getCosSignedUrl(key: string, expires: number = 3600): Prom
 /**
  * 从 URL 提取 COS key
  * @param url COS 文件 URL（可能带有签名参数）
+ * @returns 提取到的 key，或 null
  */
 export function extractCosKeyFromUrl(url: string): string | null {
-  // URL 格式: https://bucket.cos.region.myqcloud.com/key?sign=...
-  // 需要去除查询参数，只提取 key 部分
-  const match = url.match(/\.myqcloud\.com\/([^?]+)/)
+  if (!url) return null
+
+  // 格式 1: https://bucket.cos.region.myqcloud.com/key?sign=...
+  // 格式 2: https://bucket.cos.region.myqcloud.com/key
+  // 格式 3: //bucket.cos.region.myqcloud.com/key
+  const match = url.match(/\.myqcloud\.com\/([^?#]+)/)
   if (match && match[1]) {
-    return match[1]
+    return decodeURIComponent(match[1])
   }
+
   return null
+}
+
+/**
+ * 判断 URL 是否为 COS 地址
+ * @param url 资源 URL
+ */
+export function isCosUrl(url: string): boolean {
+  if (!url) return false
+  return url.includes('.myqcloud.com')
+}
+
+/**
+ * 从资源 URL 和 storage 字段推断真实的存储类型
+ * 优先根据 URL 特征判断（不受数据库 storage 字段为空/错误的影响）
+ * @param resourceUrl 资源 URL
+ * @param storage 数据库记录的 storage 字段
+ */
+export function inferStorageType(
+  resourceUrl: string,
+  storage: string | null | undefined
+): 'local' | 'cos' {
+  // URL 明确是 COS，直接返回 cos（兜底判断，覆盖 storage 字段为空/错误的情况）
+  if (isCosUrl(resourceUrl)) {
+    return 'cos'
+  }
+  // 其他情况信任 storage 字段（本地或其他）
+  return (storage === 'cos') ? 'cos' : 'local'
 }

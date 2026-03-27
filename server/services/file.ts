@@ -1,4 +1,4 @@
-﻿// 文件存储服务 - 管理文件的下载、存储和访问
+// 文件存储服务 - 管理文件的下载、存储和访问
 import { createHash } from 'crypto'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync, createReadStream, unlinkSync, type ReadStream } from 'fs'
 import { join } from 'path'
@@ -7,7 +7,7 @@ import type { MessageFile } from '../../app/shared/types'
 import { getFullResourceUrl } from '../utils/url'
 import { useSiteSettingsService } from './siteSettings'
 import { SITE_SETTING_KEYS } from '../../app/shared/constants'
-import { uploadToCos, deleteFromCos, checkCosFileExists, extractCosKeyFromUrl } from './cosStorage'
+import { uploadToCos, deleteFromCos, checkCosFileExists, extractCosKeyFromUrl, inferStorageType, isCosUrl } from './cosStorage'
 
 // 图片压缩配置
 const IMAGE_COMPRESSION = {
@@ -654,25 +654,28 @@ export async function saveBase64FileUnified(
 /**
  * 统一删除文件（根据存储类型删除）
  * @param resourceUrl 资源 URL
- * @param storage 存储类型
+ * @param storage 存储类型（可选，URL 特征优先判断）
  */
 export async function deleteFileUnified(
   resourceUrl: string,
-  storage: StorageType = 'local'
+  storage: StorageType | undefined = 'local'
 ): Promise<boolean> {
-  if (storage === 'cos' || resourceUrl.includes('.myqcloud.com')) {
-    // COS 文件
+  // 优先根据 URL 特征判断（兜底 storage 字段为空/错误的情况）
+  const effectiveStorage = inferStorageType(resourceUrl, storage)
+
+  if (effectiveStorage === 'cos') {
     const key = extractCosKeyFromUrl(resourceUrl)
     if (key) {
       return await deleteFromCos(key)
     }
+    console.warn('[File] 无法从 URL 提取 COS key，跳过删除:', resourceUrl)
     return false
   }
-  
-  // 本地文件
-  const fileName = resourceUrl.replace(/^\/uploads\//, '').replace(/^\/api\/files\//, '')
+
+  // 本地文件：尝试多种路径格式
+  let fileName = resourceUrl.replace(/^\/uploads\//, '').replace(/^\/api\/files\//, '').replace(/^\//, '')
   const filePath = join(UPLOAD_DIR, fileName)
-  
+
   if (existsSync(filePath)) {
     try {
       unlinkSync(filePath)
@@ -683,29 +686,31 @@ export async function deleteFileUnified(
       return false
     }
   }
-  
+
   return false
 }
 
 /**
  * 检查文件是否存在（根据存储类型）
  * @param resourceUrl 资源 URL
- * @param storage 存储类型
+ * @param storage 存储类型（可选，URL 特征优先判断）
  */
 export async function checkFileExistsUnified(
   resourceUrl: string,
-  storage: StorageType = 'local'
+  storage: StorageType | undefined = 'local'
 ): Promise<boolean> {
-  if (storage === 'cos' || resourceUrl.includes('.myqcloud.com')) {
-    // COS 文件
+  // 优先根据 URL 特征判断
+  const effectiveStorage = inferStorageType(resourceUrl, storage)
+
+  if (effectiveStorage === 'cos') {
     const key = extractCosKeyFromUrl(resourceUrl)
     if (key) {
       return await checkCosFileExists(key)
     }
     return false
   }
-  
+
   // 本地文件
-  const fileName = resourceUrl.replace(/^\/uploads\//, '').replace(/^\/api\/files\//, '')
+  const fileName = resourceUrl.replace(/^\/uploads\//, '').replace(/^\/api\/files\//, '').replace(/^\//, '')
   return fileExists(fileName)
 }
