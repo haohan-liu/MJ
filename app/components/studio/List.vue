@@ -190,13 +190,13 @@ function handlePageChange() {
         <UButton
           size="xs"
           variant="ghost"
-          color="warning"
+          color="neutral"
           :loading="clearInvalidLoading"
           :disabled="clearInvalidLoading"
           @click="openClearInvalidConfirm"
         >
           <UIcon name="i-heroicons-trash" class="w-4 h-4 lg:mr-1" />
-          <span class="hidden lg:inline">清理失效</span>
+          <span class="hidden lg:inline">清理失效任务</span>
         </UButton>
         <!-- 回收站 -->
         <NuxtLink to="/trash">
@@ -298,7 +298,7 @@ function handlePageChange() {
     <UModal
       v-model:open="showClearInvalidConfirm"
       title="确认清理"
-      description="确定要清理所有失效或无内容的任务吗？此操作不可恢复。"
+      description="确定要清理所有失效或无内容的任务吗？他不会放入回收站，此操作不可恢复。"
       :close="false"
     >
       <template #footer>

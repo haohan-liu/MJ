@@ -7,46 +7,46 @@ const { siteName, siteSlogan, siteCopyright } = useSiteSettings()
 <template>
   <div class="min-h-screen flex flex-col">
     <!-- Hero Section -->
-    <section class="flex-1 flex items-center justify-center px-6 py-20">
+    <section class="flex-1 flex items-center justify-center px-6 py-12 sm:py-20">
       <div class="max-w-4xl mx-auto text-center">
         <!-- Logo -->
         <div class="mb-8">
-          <UIcon name="i-heroicons-sparkles" class="w-16 h-16 text-(--ui-primary) mx-auto mb-4" />
-          <h1 class="text-5xl font-bold mb-4">
+          <UIcon name="i-heroicons-sparkles" class="w-12 h-12 sm:w-16 sm:h-16 text-(--ui-primary) mx-auto mb-4" />
+          <h1 class="text-4xl sm:text-5xl font-bold mb-3">
             <span class="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
               {{ siteName }}
             </span>
           </h1>
-          <p class="text-xl text-(--ui-text-muted)">{{ siteSlogan }}</p>
+          <p class="text-base sm:text-xl text-(--ui-text-muted)">{{ siteSlogan }}</p>
         </div>
 
         <!-- 特性介绍 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div class="p-6 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border)">
-            <UIcon name="i-heroicons-paint-brush" class="w-10 h-10 text-purple-500 mx-auto mb-4" />
-            <h3 class="text-lg font-medium text-(--ui-text) mb-2">AI 绘图</h3>
-            <p class="text-sm text-(--ui-text-muted)">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-10">
+          <div class="flex flex-col p-5 sm:p-6 rounded-xl bg-(--ui-bg-elevated) border border-(--ui-border) text-center h-full">
+            <UIcon name="i-heroicons-paint-brush" class="w-8 h-8 sm:w-10 sm:h-10 text-purple-500 mx-auto mb-3 sm:mb-4 shrink-0" />
+            <h3 class="text-base sm:text-lg font-medium text-(--ui-text) mb-2">AI 绘图</h3>
+            <p class="text-xs sm:text-sm text-(--ui-text-muted) leading-relaxed flex-1">
               支持 Midjourney、DALL-E、Flux、Gemini 等多种 AI 绘图模型
             </p>
           </div>
-          <div class="p-6 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border)">
-            <UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-blue-500 mx-auto mb-4" />
-            <h3 class="text-lg font-medium text-(--ui-text) mb-2">AI 对话</h3>
-            <p class="text-sm text-(--ui-text-muted)">
+          <div class="flex flex-col p-5 sm:p-6 rounded-xl bg-(--ui-bg-elevated) border border-(--ui-border) text-center h-full">
+            <UIcon name="i-heroicons-chat-bubble-left-right" class="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 mx-auto mb-3 sm:mb-4 shrink-0" />
+            <h3 class="text-base sm:text-lg font-medium text-(--ui-text) mb-2">AI 对话</h3>
+            <p class="text-xs sm:text-sm text-(--ui-text-muted) leading-relaxed flex-1">
               创建专属 AI 助手，支持自定义系统提示词和对话管理
             </p>
           </div>
-          <div class="p-6 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border)">
-            <UIcon name="i-heroicons-server" class="w-10 h-10 text-green-500 mx-auto mb-4" />
-            <h3 class="text-lg font-medium text-(--ui-text) mb-2">多上游支持</h3>
-            <p class="text-sm text-(--ui-text-muted)">
+          <div class="flex flex-col p-5 sm:p-6 rounded-xl bg-(--ui-bg-elevated) border border-(--ui-border) text-center h-full sm:col-span-2 lg:col-span-1">
+            <UIcon name="i-heroicons-server" class="w-8 h-8 sm:w-10 sm:h-10 text-green-500 mx-auto mb-3 sm:mb-4 shrink-0" />
+            <h3 class="text-base sm:text-lg font-medium text-(--ui-text) mb-2">多上游支持</h3>
+            <p class="text-xs sm:text-sm text-(--ui-text-muted) leading-relaxed flex-1">
               灵活配置多个 API 上游，轻松切换不同服务提供商
             </p>
           </div>
         </div>
 
         <!-- CTA -->
-        <div class="flex flex-wrap justify-center gap-4">
+        <div class="flex flex-wrap justify-center gap-3 sm:gap-4">
           <NuxtLink v-if="loggedIn" to="/studio">
             <UButton size="lg" class="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
               <UIcon name="i-heroicons-paint-brush" class="w-5 h-5 mr-2" />
