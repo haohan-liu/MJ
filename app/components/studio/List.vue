@@ -10,6 +10,8 @@ const { tasks, isLoading, currentPage, pageSize, total, sourceType, taskType, ke
 
 // 批量操作loading状态
 const blurLoading = ref(false)
+const clearInvalidLoading = ref(false)
+const showClearInvalidConfirm = ref(false)
 
 // 来源筛选选项
 const sourceOptions = [
@@ -127,6 +129,27 @@ async function unblurAll() {
   }
 }
 
+// 清理失效任务
+function openClearInvalidConfirm() {
+  showClearInvalidConfirm.value = true
+}
+
+async function confirmClearInvalid() {
+  showClearInvalidConfirm.value = false
+  clearInvalidLoading.value = true
+  try {
+    const result = await $fetch<{ success: boolean; count: number }>('/api/tasks/clear-invalid', {
+      method: 'DELETE',
+    })
+    toast.add({ title: `成功清理了 ${result.count} 个失效任务！`, color: 'success' })
+    loadTasks()
+  } catch (error: any) {
+    toast.add({ title: error.data?.message || error.message || '清理失败', color: 'error' })
+  } finally {
+    clearInvalidLoading.value = false
+  }
+}
+
 // 切换页面
 function handlePageChange() {
   loadTasks()
@@ -163,6 +186,18 @@ function handlePageChange() {
             <span class="hidden lg:inline">显示本页</span>
           </UButton>
         </div>
+        <!-- 清理失效任务 -->
+        <UButton
+          size="xs"
+          variant="ghost"
+          color="warning"
+          :loading="clearInvalidLoading"
+          :disabled="clearInvalidLoading"
+          @click="openClearInvalidConfirm"
+        >
+          <UIcon name="i-heroicons-trash" class="w-4 h-4 lg:mr-1" />
+          <span class="hidden lg:inline">清理失效</span>
+        </UButton>
         <!-- 回收站 -->
         <NuxtLink to="/trash">
           <UButton size="xs" variant="ghost" color="neutral">
@@ -258,5 +293,24 @@ function handlePageChange() {
         />
       </div>
     </template>
+
+    <!-- 清理失效确认弹窗 -->
+    <UModal
+      v-model:open="showClearInvalidConfirm"
+      title="确认清理"
+      description="确定要清理所有失效或无内容的任务吗？此操作不可恢复。"
+      :close="false"
+    >
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <UButton color="error" :loading="clearInvalidLoading" @click="confirmClearInvalid">
+            确认清理
+          </UButton>
+          <UButton variant="outline" color="neutral" @click="showClearInvalidConfirm = false">
+            取消
+          </UButton>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

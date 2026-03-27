@@ -124,7 +124,7 @@ const NANOBANANA_MODELS: Record<string, NanoBananaModelCapabilities> = {
     supportsWebSearch: true,    // 支持联网搜索
     supportsImageSearch: true,  // 支持图片搜索
     supportsThinking: true,     // 支持思考模式
-    supportedResolutions: ['512', '1K', '2K', '4K'],
+    supportedResolutions: ['1K', '512', '2K', '4K'],  // 默认 1K
     supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '1:4', '4:1', '1:8', '8:1'],
   },
 }

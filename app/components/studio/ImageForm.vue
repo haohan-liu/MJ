@@ -6,6 +6,8 @@ import { getModelCapabilities, getApiFormatLabel } from '../../shared/registry'
 import {
   MAX_REFERENCE_IMAGE_SIZE_BYTES,
   MAX_REFERENCE_IMAGE_COUNT,
+  NANOBANANA_MAX_REFERENCE_IMAGE_SIZE_BYTES,
+  NANOBANANA_MAX_REFERENCE_IMAGE_COUNT,
   USER_SETTING_KEYS,
 } from '../../shared/constants'
 
@@ -88,9 +90,17 @@ const gptImageSizeOptions = [
 ]
 
 const geminiSizeOptions = [
-  { label: '1K (默认)', value: '1K' },
+  { label: '1K', value: '1K' },
   { label: '2K', value: '2K' },
   { label: '4K', value: '4K' },
+]
+
+// NanoBanana 模型尺寸选项（默认 1K）
+const nanoBananaSizeOptions = [
+  { label: '1K 标准', value: '1K' },
+  { label: '512 极速', value: '512' },
+  { label: '2K 高清', value: '2K' },
+  { label: '4K 超清', value: '4K' },
 ]
 
 // 质量选项
@@ -338,6 +348,14 @@ const isNanoBananaModel = computed(() => {
          modelName.includes('gemini-3.1')
 })
 
+// 当前模型的参考图限制（NanoBanana 使用专用限制）
+const currentMaxImageSize = computed(() =>
+  isNanoBananaModel.value ? NANOBANANA_MAX_REFERENCE_IMAGE_SIZE_BYTES : MAX_REFERENCE_IMAGE_SIZE_BYTES
+)
+const currentMaxImageCount = computed(() =>
+  isNanoBananaModel.value ? NANOBANANA_MAX_REFERENCE_IMAGE_COUNT : MAX_REFERENCE_IMAGE_COUNT
+)
+
 // 是否支持各参数
 const supportsSize = computed(() => capabilities.value.size === true)
 
@@ -408,6 +426,12 @@ const supportsImageSearch = computed(() => {
 
 // 获取当前模型的尺寸选项（信任管理员的 uiCapabilities 配置）
 const currentSizeOptions = computed(() => {
+  // NanoBanana 模型强制使用前端定义的尺寸选项（确保默认 1K）
+  // 忽略数据库中的 uiCapabilities 配置
+  if (isNanoBananaModel.value) {
+    return nanoBananaSizeOptions
+  }
+
   // 优先使用模型自定义的尺寸配置（管理员配置的 uiCapabilities）
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.sizes?.length > 0) {
@@ -488,20 +512,33 @@ const showModelInfoModal = ref(false)
 // 上传中状态
 const isUploading = ref(false)
 
+// 参考图文件选择（大拖放区与 NanoBanana 小加号格共用）
+const referenceFileInput = ref<HTMLInputElement | null>(null)
+function openReferenceFilePicker() {
+  referenceFileInput.value?.click()
+}
+
 // 拖拽状态
 const isDragging = ref(false)
 
 // 处理图片上传（统一处理函数）
 async function uploadFiles(files: File[]) {
-  const validFiles = files.slice(0, MAX_REFERENCE_IMAGE_COUNT - referenceImages.value.length)
+  // 已达数量上限
+  if (referenceImages.value.length >= currentMaxImageCount.value) {
+    toast.add({ title: `已达参考图数量上限（${currentMaxImageCount.value}张）`, color: 'error' })
+    return
+  }
+
+  const maxSizeMB = currentMaxImageSize.value / (1024 * 1024)
+  const validFiles = files.slice(0, currentMaxImageCount.value - referenceImages.value.length)
 
   for (const file of validFiles) {
     if (!file.type.startsWith('image/')) {
       toast.add({ title: '只能上传图片文件', color: 'error' })
       continue
     }
-    if (file.size > MAX_REFERENCE_IMAGE_SIZE_BYTES) {
-      toast.add({ title: '图片大小不能超过30MB', color: 'error' })
+    if (file.size > currentMaxImageSize.value) {
+      toast.add({ title: `图片大小不能超过${maxSizeMB}MB`, color: 'error' })
       continue
     }
 
@@ -515,7 +552,7 @@ async function uploadFiles(files: File[]) {
         body: formData,
       })
 
-      if (result.success && referenceImages.value.length < MAX_REFERENCE_IMAGE_COUNT) {
+      if (result.success && referenceImages.value.length < currentMaxImageCount.value) {
         referenceImages.value.push(result.url)
       }
     } catch (error: any) {
@@ -707,7 +744,7 @@ async function handleSubmit() {
 function setContent(newPrompt: string | null, modelParams: ImageModelParams | null, images: string[]) {
   prompt.value = newPrompt || ''
   negativePrompt.value = modelParams?.negativePrompt || ''
-  referenceImages.value = images.slice(0, MAX_REFERENCE_IMAGE_COUNT)
+  referenceImages.value = images.slice(0, currentMaxImageCount)
 
   // 恢复模型参数
   if (modelParams) {
@@ -766,7 +803,7 @@ defineExpose({
         >
           <div class="text-center bg-(--ui-bg-elevated) rounded-xl p-8 shadow-2xl">
             <UIcon name="i-heroicons-arrow-path" class="w-12 h-12 text-(--ui-primary) mx-auto mb-4 animate-spin" />
-            <p class="text-lg font-medium text-(--ui-text)">正在处理图片...</p>
+            <p class="text-lg font-medium text-(--ui-text)">正在压缩上传图片...</p>
             <p class="text-sm text-(--ui-text-muted) mt-2">请勿关闭此窗口</p>
           </div>
         </div>
@@ -821,17 +858,37 @@ defineExpose({
     <div class="border-t border-(--ui-border)" />
 
     <!-- 参考图上传区 -->
-    <UFormField v-if="supportsReferenceImages" label="参考图 (可选)">
+    <UFormField v-if="supportsReferenceImages" :label="isNanoBananaModel ? undefined : '参考图 (可选)'">
+      <template v-if="isNanoBananaModel" #label>
+        <span>参考图 (可选)</span>
+      </template>
       <template #hint>
-        <span class="text-(--ui-text-dimmed) text-xs">支持常见图片格式，单张最大30MB，最多{{ MAX_REFERENCE_IMAGE_COUNT }}张</span>
+        <span v-if="isNanoBananaModel" class="text-(--ui-text-dimmed) text-xs">
+          支持常见图片格式，单张最大 {{ currentMaxImageSize / (1024 * 1024) }}MB，最多{{ currentMaxImageCount }}张
+        </span>
+        <span v-else class="text-(--ui-text-dimmed) text-xs">
+          支持常见图片格式，单张最大{{ currentMaxImageSize / (1024 * 1024) }}MB，最多{{ currentMaxImageCount }}张
+        </span>
       </template>
 
-      <div class="flex gap-3 flex-wrap">
+      <div
+        class="items-start"
+        :class="
+          isNanoBananaModel && referenceImages.length > 0
+            ? 'grid grid-cols-3 gap-2 sm:gap-3'
+            : 'flex flex-wrap gap-3'
+        "
+      >
         <!-- 已上传的图片 -->
         <div
           v-for="(img, index) in referenceImages"
           :key="index"
-          class="relative w-24 h-24 rounded-lg overflow-hidden group"
+          class="relative overflow-hidden group min-w-0"
+          :class="
+            isNanoBananaModel && referenceImages.length > 0
+              ? 'aspect-square w-full rounded-xl'
+              : 'w-24 h-24 shrink-0 rounded-lg'
+          "
         >
           <img :src="formatImageUrl(img)" class="w-full h-full object-cover" />
           <button
@@ -843,29 +900,44 @@ defineExpose({
           </button>
         </div>
 
-        <!-- 上传区域（支持拖拽和粘贴） -->
+        <!-- NanoBanana：已有图片时，追加图为与缩略图同尺寸的虚线加号格 -->
         <div
-          v-if="referenceImages.length < MAX_REFERENCE_IMAGE_COUNT"
+          v-if="isNanoBananaModel && referenceImages.length > 0 && referenceImages.length < currentMaxImageCount"
+          class="aspect-square w-full min-w-0 rounded-xl border border-dashed transition-colors flex items-center justify-center cursor-pointer"
+          :class="isDragging ? 'border-(--ui-primary) bg-(--ui-primary)/10' : 'border-(--ui-border-muted) hover:border-(--ui-primary) bg-(--ui-bg-elevated)/30'"
+          @dragover="handleDragOver"
+          @dragleave="handleDragLeave"
+          @drop="handleDrop"
+          @click="openReferenceFilePicker()"
+        >
+          <UIcon name="i-heroicons-plus" class="w-7 h-7 sm:w-8 sm:h-8 text-(--ui-text-dimmed)" />
+        </div>
+
+        <!-- 大拖放区：非 NanoBanana 始终；NanoBanana 仅在尚未添加任何图时 -->
+        <div
+          v-if="referenceImages.length < currentMaxImageCount && (!isNanoBananaModel || referenceImages.length === 0)"
           class="w-full min-h-[100px] rounded-lg border-2 border-dashed transition-colors flex flex-col items-center justify-center cursor-pointer relative"
           :class="isDragging ? 'border-(--ui-primary) bg-(--ui-primary)/10' : 'border-(--ui-border-accented) hover:border-(--ui-primary)'"
           @dragover="handleDragOver"
           @dragleave="handleDragLeave"
           @drop="handleDrop"
-          @click="($refs.fileInput as HTMLInputElement).click()"
+          @click="openReferenceFilePicker()"
         >
           <UIcon name="i-heroicons-cloud-arrow-up" class="w-8 h-8 text-(--ui-text-dimmed) mb-2" />
-          <span class="text-(--ui-text-dimmed) text-sm">点击上传、粘贴或拖拽图片到工作台</span>
+          <span class="text-(--ui-text-dimmed) text-sm">点击上传、支持Ctrl+V粘贴或拖拽图片</span>
           <span v-if="isDragging" class="text-(--ui-primary) text-xs mt-1">松开即可上传</span>
-          <input
-            ref="fileInput"
-            type="file"
-            accept="image/*"
-            multiple
-            class="hidden"
-            @change="handleFileChange"
-          />
         </div>
       </div>
+
+      <input
+        ref="referenceFileInput"
+        type="file"
+        accept="image/*"
+        multiple
+        class="hidden"
+        tabindex="-1"
+        @change="handleFileChange"
+      />
     </UFormField>
 
     <!-- 提示词输入 -->
@@ -941,7 +1013,7 @@ defineExpose({
           <!-- 图片搜索开关 -->
           <UFormField v-if="supportsImageSearch" label="图片搜索">
             <template #hint>
-              <span class="text-(--ui-text-dimmed) text-xs">启用图片搜索获取参考图片</span>
+              <span class="text-(--ui-text-dimmed) text-xs">启用网络图片搜索获取参考图片</span>
             </template>
             <USwitch v-model="enableImageSearch" />
           </UFormField>

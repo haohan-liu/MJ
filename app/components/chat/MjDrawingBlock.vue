@@ -15,7 +15,7 @@ const props = defineProps<{
   params: MjDrawingParams
 }>()
 
-const { formatImageUrl } = useImageUrl()>()
+const { formatImageUrl } = useImageUrl()
 
 const { on } = useGlobalEvents()
 

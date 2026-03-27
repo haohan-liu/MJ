@@ -367,7 +367,7 @@ const platformLabels: Record<string, string> = {
           <div class="flex items-center justify-between">
             <div class="flex flex-col">
               <span class="text-sm text-(--ui-text)">自动压缩参考图</span>
-              <span class="text-xs text-(--ui-text-dimmed)">开启后，大于 3MB 的参考图会自动压缩，加快上传速度和生成响应</span>
+              <span class="text-xs text-(--ui-text-dimmed)">开启后，大于 5MB 的参考图会自动压缩，加快上传速度和生成响应</span>
             </div>
             <USwitch v-model="preferencesForm.autoCompressRefImage" />
           </div>

@@ -172,13 +172,19 @@ export async function getCosSignedUrl(key: string, expires: number = 3600): Prom
 
 /**
  * 从 URL 提取 COS key
- * @param url COS 文件 URL（可能带有签名参数）
+ * @param urlOrKey COS 文件 URL（可能带有签名参数），或直接的 key（相对路径）
  * @returns 提取到的 key，或 null
  */
-export function extractCosKeyFromUrl(url: string): string | null {
-  if (!url) return null
+export function extractCosKeyFromUrl(urlOrKey: string): string | null {
+  if (!urlOrKey) return null
 
-  // COS URL 匹配所有变体格式：
+  // 如果不是以 http:// 或 https:// 开头，说明已经是纯净的相对路径（key）
+  // 直接返回，不做任何 URL 解析
+  if (!urlOrKey.startsWith('http://') && !urlOrKey.startsWith('https://')) {
+    return urlOrKey
+  }
+
+  // 以下处理完整的 COS URL：
   // 1. https://bucket.cos.region.myqcloud.com/key
   // 2. //bucket.cos.region.myqcloud.com/key   （协议相对，SDK 返回）
   // 3. bucket.cos.region.myqcloud.com/key      （裸域名）
@@ -186,7 +192,7 @@ export function extractCosKeyFromUrl(url: string): string | null {
   // 5. https://cos.xxx.com/key                 （自定义 CDN 域名）
   // 6. https://bucket-appid.cos.ap-guangzhou.myqcloud.com/key
   // 支持 ?sign=... 或 #... 等尾部参数
-  const match = url.match(/(?:\/\/)?(?:[^/]+\.)?(?:myqcloud\.com|cos\.[^/]+)\/(.+)$/)
+  const match = urlOrKey.match(/(?:\/\/)?(?:[^/]+\.)?(?:myqcloud\.com|cos\.[^/]+)\/(.+)$/)
   if (match && match[1]) {
     return decodeURIComponent(match[1].split(/[?#]/)[0])
   }

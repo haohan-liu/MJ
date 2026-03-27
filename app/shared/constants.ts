@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 共享常量定义
  *
  * 本文件定义前后端共用的常量，每个常量都标注了使用场景。
@@ -568,6 +568,15 @@ export const MAX_REFERENCE_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  // 10MB
  *   - DrawingPanel.vue: 限制参考图数组长度、控制上传按钮显示
  */
 export const MAX_REFERENCE_IMAGE_COUNT = 3
+
+/**
+ * NanoBanana 系列参考图限制（单张最大 30MB，最多 10 张）
+ * - NanoBanana 模型支持最多 10 张参考图，单张最大 30MB
+ * - 使用场景：
+ *   - ImageForm.vue: NanoBanana 系列模型使用此限制
+ */
+export const NANOBANANA_MAX_REFERENCE_IMAGE_SIZE_BYTES = 20 * 1024 * 1024  // 20MB
+export const NANOBANANA_MAX_REFERENCE_IMAGE_COUNT = 10
 
 // ==================== 进度条配置 ====================
 

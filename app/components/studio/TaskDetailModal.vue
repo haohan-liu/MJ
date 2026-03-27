@@ -22,6 +22,16 @@ const modelInfo = computed(() => {
 
 // 获取状态显示
 const statusInfo = computed(() => {
+  // 检查是否已过期
+  if (props.task.deletedAt) {
+    return { text: '已过期', color: 'text-(--ui-text-muted)', icon: 'i-heroicons-clock', isExpired: true }
+  }
+
+  // 检查文件是否已被删除
+  if (props.task.resourceDeleted) {
+    return { text: '文件已删除', color: 'text-(--ui-text-muted)', icon: 'i-heroicons-trash', isExpired: true, isFileDeleted: true }
+  }
+
   switch (props.task.status) {
     case 'pending':
       return { text: '等待中', color: 'text-(--ui-warning)' }
@@ -66,6 +76,32 @@ const taskTypeLabel = computed(() => {
 <template>
   <UModal v-model:open="open" title="任务详情">
     <template #body>
+      <!-- 图片预览区域 -->
+      <div
+        class="mb-4 rounded-lg overflow-hidden border border-(--ui-border)"
+        :class="task.resourceUrl && !task.resourceDeleted ? 'aspect-video checkerboard-bg' : 'aspect-video bg-(--ui-bg-muted)'"
+      >
+        <img
+          v-if="task.resourceUrl && !task.resourceDeleted"
+          :src="task.resourceUrl"
+          :alt="task.prompt ?? ''"
+          class="w-full h-full object-contain"
+        />
+        <div v-else class="w-full h-full flex items-center justify-center p-4">
+          <div class="text-center">
+            <UIcon
+              v-if="statusInfo.icon"
+              :name="statusInfo.icon"
+              :class="['w-16 h-16 mb-3', statusInfo.color]"
+            />
+            <p :class="['text-base mb-1', statusInfo.color]">{{ statusInfo.text }}</p>
+            <p v-if="statusInfo.isExpired" class="text-(--ui-text-dimmed) text-sm">
+              {{ statusInfo.isFileDeleted ? '文件已被清理，无法查看' : '数据已过期，无法查看' }}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div class="space-y-3 text-sm">
         <div class="flex justify-between">
           <span class="text-(--ui-text-muted)">任务ID</span>
@@ -123,3 +159,25 @@ const taskTypeLabel = computed(() => {
     </template>
   </UModal>
 </template>
+
+<style scoped>
+.checkerboard-bg {
+  background-image:
+    linear-gradient(45deg, #e0e0e0 25%, transparent 25%),
+    linear-gradient(-45deg, #e0e0e0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e0e0e0 75%),
+    linear-gradient(-45deg, transparent 75%, #e0e0e0 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-color: #fff;
+}
+
+:root.dark .checkerboard-bg {
+  background-image:
+    linear-gradient(45deg, #3a3a3a 25%, transparent 25%),
+    linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #3a3a3a 75%),
+    linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
+  background-color: #2a2a2a;
+}
+</style>

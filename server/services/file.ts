@@ -13,7 +13,7 @@ import { uploadToCos, deleteFromCos, checkCosFileExists, extractCosKeyFromUrl, i
 const IMAGE_COMPRESSION = {
   maxWidth: 1920,      // 最大宽度
   maxHeight: 1920,     // 最大高度
-  maxFileSize: 2 * 1024 * 1024,  // 最大文件大小 2MB
+  maxFileSize: 5 * 1024 * 1024,  // 最大文件大小 5MB
   quality: 85,         // JPEG/WebP 质量
   formats: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],  // 需要压缩的图片格式
 }
@@ -669,6 +669,7 @@ export async function deleteFileUnified(
       console.warn('[File] 无法从 URL 提取 COS key，跳过删除:', resourceUrl)
       return false
     }
+    console.log('[File] 准备从 COS 删除文件，Key 为:', key)
     // 先验尸：检查 COS 文件是否存在，避免 SDK 对不存在的文件返回 false 而导致幽灵记录被计入删除数
     const exists = await checkCosFileExists(key)
     if (!exists) {
