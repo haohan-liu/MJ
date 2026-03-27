@@ -559,11 +559,24 @@ export const nanoBananaProvider: SyncProvider = {
      * Gemini/Imagen API 禁止直接发送图片 URL，必须转换为 base64 格式
      * 优先级：本地文件 > COS 签名 URL（绕过 403）> COS 公网 URL > 其他公网 URL
      *
+     * 支持的 URL 格式：
+     * - data:image/xxx;base64,... (直接返回)
+     * - /api/files/xxx (本地文件)
+     * - /uploads/xxx (本地文件)
+     * - images/2026-03/xxx.png (纯相对路径 - COS key)
+     * - https://bucket.cos.region.myqcloud.com/xxx (COS URL)
+     * - //bucket.cos.region.myqcloud.com/xxx (协议相对 COS URL)
+     * - 其他 http/https URL
+     *
      * @param url 原始 URL
      * @returns base64 data URL 或 undefined（失败时）
      */
-    async function convertImageUrlToBase64(url: string): Promise<string | undefined> {
-      if (!url) return undefined
+    async function convertImageUrlToBase64(url: string | null | undefined): Promise<string | undefined> {
+      // 严格空值防御
+      if (!url || typeof url !== 'string') {
+        debugLog(`[ImageConvert] 参考图为空或无效，跳过转换`)
+        return undefined
+      }
 
       // 已经是 base64 data URL，直接返回
       if (url.startsWith('data:')) {
@@ -571,7 +584,7 @@ export const nanoBananaProvider: SyncProvider = {
         return url
       }
 
-      // ── 1. 本地文件路径：直接读磁盘，绕过所有网络层 ──────────────────
+      // ── 1. 本地文件路径：直接读磁盘 ────────────────────────────────
       // 覆盖 /api/files/xxx、/uploads/xxx 及其子路径
       const localMatch = url.match(/^\/(?:api\/files|uploads)\/(.+)$/)
       if (localMatch) {
@@ -588,11 +601,44 @@ export const nanoBananaProvider: SyncProvider = {
         return undefined
       }
 
-      // ── 2. 腾讯云 COS URL（含所有变体）───────────────────────────────
+      // ── 2. 纯相对路径（如 images/2026-03/xxx.png）─────────────────
+      // 这是系统统一存储格式，对应 COS key
+      // 需要通过后端代理获取文件内容
+      if (!url.startsWith('/') && !url.startsWith('http')) {
+        debugLog(`[ImageConvert] 检测到纯相对路径: ${url}`)
+
+        // 尝试通过本地后端代理获取（兼容本地和 COS 存储）
+        // 注意：这里使用相对路径拼接，通过 fetch 读取后端代理
+        try {
+          // 构建本地文件路径尝试直接读取
+          // 对于 COS 存储：上传路径是 images/xxx，对应的本地缓存不存在
+          // 需要通过 getCosSignedUrl 获取签名 URL 再下载
+          const cosKey = url
+          const signedUrl = await getCosSignedUrl(cosKey, 900)
+          if (signedUrl) {
+            debugLog(`[ImageConvert] COS 签名 URL 获取成功，尝试下载...`)
+            const response = await fetchFn(signedUrl, { method: 'GET' })
+            if (response.ok) {
+              const buffer = await response.arrayBuffer()
+              const contentType = response.headers.get('content-type') || 'image/png'
+              const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
+              debugLog(`[ImageConvert] COS 文件转换成功: ${base64.length} bytes`)
+              return base64
+            } else {
+              console.warn(`[NanoBanana] COS 签名 URL 下载失败 HTTP ${response.status}`)
+            }
+          }
+        } catch (err) {
+          console.warn(`[NanoBanana] 纯相对路径处理异常: ${err}`)
+        }
+        return undefined
+      }
+
+      // ── 3. 腾讯云 COS URL（含所有变体）─────────────────────────────
       // 变体：bucket.cos.region.myqcloud.com、//bucket.cos...、//bucket.myqcloud...
       const cosKey = extractCosKeyFromUrl(url)
       if (cosKey) {
-        debugLog(`[ImageConvert] 检测到 COS 文件，key: ${cosKey}`)
+        debugLog(`[ImageConvert] 检测到 COS URL，提取 key: ${cosKey}`)
 
         // 优先：尝试用 COS SDK 生成带签名的访问 URL（有权限，绕过 403）
         try {
@@ -633,7 +679,7 @@ export const nanoBananaProvider: SyncProvider = {
         return undefined
       }
 
-      // ── 3. 其他公网 URL ──────────────────────────────────────────────
+      // ── 4. 其他公网 URL ──────────────────────────────────────────
       if (url.startsWith('http://') || url.startsWith('https://')) {
         try {
           const response = await fetchFn(url, { method: 'GET' })
@@ -652,9 +698,9 @@ export const nanoBananaProvider: SyncProvider = {
         return undefined
       }
 
-      // ── 4. 未知格式 ──────────────────────────────────────────────────
-      console.warn(`[NanoBanana] 参考图无法识别和转换，保持原值: ${url}`)
-      return url
+      // ── 5. 未知格式 ──────────────────────────────────────────────
+      console.warn(`[NanoBanana] 参考图无法识别和转换: ${url}`)
+      return undefined
     }
 
     // ============================================================

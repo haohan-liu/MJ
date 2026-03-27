@@ -34,16 +34,17 @@ const menuItems = [
     to: '/settings/announcements',
     adminOnly: true,
   },
+    {
+    label: '通用设置',
+    icon: 'i-heroicons-cog-6-tooth',
+    to: '/settings/general',
+    adminOnly: true,
+  },
   {
     label: '站点配置',
     icon: 'i-heroicons-building-office',
     to: '/settings/site',
     adminOnly: true,
-  },
-  {
-    label: '通用设置',
-    icon: 'i-heroicons-cog-6-tooth',
-    to: '/settings/general',
   },
 ]
 

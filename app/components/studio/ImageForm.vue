@@ -150,7 +150,7 @@ const sizeLabelMap: Record<string, string> = {
  * 宽高比标签映射
  */
 const aspectRatioLabelMap: Record<string, string> = {
-  'auto': '自动（默认1:1）',
+  'auto': '自动',
   '1:1': '1:1 正方形',
   '2:3': '2:3 竖版',
   '3:2': '3:2 横版',
@@ -374,14 +374,14 @@ const thinkingModeOptions = computed(() => {
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.thinkingModes && uiCaps.thinkingModes.length > 0) {
     return uiCaps.thinkingModes.map((m: string) => ({
-      label: m === 'fast' ? '快速（默认）' : m === 'medium' ? '中等' : m === 'deep' ? '深度思考' : m,
+      label: m === 'fast' ? '快速思考' : m === 'medium' ? '中等' : m === 'deep' ? '深度思考' : m,
       value: m
     }))
   }
   // 如果启用了 thinkingModesEnabled 但没有具体选项，提供默认选项
   if (uiCaps?.thinkingModesEnabled === true) {
     return [
-      { label: '快速（默认）', value: 'fast' },
+      { label: '快速思考', value: 'fast' },
       { label: '深度思考', value: 'deep' },
     ]
   }
