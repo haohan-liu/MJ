@@ -50,11 +50,17 @@ export function useTaskService() {
   const aimodelService = useAimodelService()
 
   // 将图片 URL 数组转换为 Base64 数组
-  // fetchRemoteUrls: 是否下载远程 URL 转 base64（用于不支持 URL 的上游如抠抠图）
+  // fetchRemoteUrls: 是否下载远程 URL 转 base64（用于不支持 URL 的上游如抠图）
+  // 支持三种格式：
+  // 1. data:image/xxx;base64,... - Base64 数据直接返回
+  // 2. /api/files/xxx 或 http://domain/api/files/xxx - 本地文件
+  // 3. images/2026-03/xxx.png - COS key（需要获取预签名后下载）
   async function convertImagesToBase64(images: string[] | undefined, fetchRemoteUrls: boolean = false): Promise<string[]> {
     if (!images || images.length === 0) return []
 
+    const storageType = await getStorageType()
     const results: string[] = []
+
     for (const url of images) {
       // 如果已经是 base64，直接返回
       if (url.startsWith('data:')) {
@@ -72,6 +78,28 @@ export function useTaskService() {
           continue
         }
       }
+
+  // COS key 处理（images/2026-03/xxx.png 格式）
+  // 如果当前存储类型是 COS，尝试获取预签名 URL 后下载
+  // 判断条件：存储类型是 COS，且 URL 不是完整 URL（不含 http/），且不是本地路径（不含 /api/files/）
+  const isCosKey = storageType === 'cos' && !url.startsWith('http') && !url.startsWith('/api/files/')
+  if (isCosKey && fetchRemoteUrls) {
+    try {
+      const signedUrl = await getCosSignedUrl(url, 3600)
+      if (signedUrl) {
+        const response = await fetch(signedUrl)
+        if (response.ok) {
+          const buffer = await response.arrayBuffer()
+          const contentType = response.headers.get('content-type') || 'image/png'
+          const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
+          results.push(base64)
+          continue
+        }
+      }
+    } catch {
+      // 下载失败，保留原 URL
+    }
+  }
 
       // 远程 URL 处理
       if (fetchRemoteUrls && (url.startsWith('http://') || url.startsWith('https://'))) {

@@ -15,38 +15,50 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // 检查是否为 COS 私有桶存储
-  // 优先根据 name 本身判断（不包含 .myqcloud.com 的是 COS key，包含的是本地文件或旧格式 URL）
+  // URL 解码
+  const decodedName = decodeURIComponent(name)
+
+  // 获取当前存储类型
   const storageType = await getStorageType()
-  const isCosStorage = storageType === 'cos'
-  const nameContainsCosDomain = isCosUrl(name)
 
-  // 私有 COS 桶：name 是纯粹的 key（如 images/2026-03/xxx.png），需要生成预签名重定向
-  // 公有 COS 桶：name 本身包含完整域名（如 https://bucket.cos.../key），直接重定向
-  // 旧数据兼容：name 可能是 https://bucket.cos.../key 格式
-  if (isCosStorage && (isCosUrl(name) || !name.includes('/uploads/'))) {
-    // 提取 COS key
-    const cosKey = isCosUrl(name)
-      ? name.match(/(?:\/\/)?(?:[^/]+\.)?(?:myqcloud\.com|cos\.[^/]+)\/(.+)$/)?.[1]
-      : name
+  // ========================================
+  // COS 存储处理
+  // ========================================
+  if (storageType === 'cos') {
+    // 情况1: 明确的 COS key（如 images/2026-03/xxx.png）
+    // 情况2: 旧数据（包含 .myqcloud.com 域名）
+    // 情况3: 协议相对 URL（//bucket.cos...）
+    if (isCosUrl(decodedName) || decodedName.startsWith('images/') || decodedName.startsWith('//')) {
+      // 提取 COS key
+      let cosKey: string | null = null
 
-    if (cosKey) {
-      const decodedKey = decodeURIComponent(cosKey.split(/[?#]/)[0])
-      const signedUrl = await getCosSignedUrl(decodedKey, 3600)
-      if (signedUrl) {
-        return sendRedirect(event, signedUrl, 302)
+      if (isCosUrl(decodedName)) {
+        // 从 URL 中提取 key
+        cosKey = decodedName.match(/(?:\/\/)?(?:[^/]+\.)?(?:myqcloud\.com|cos\.[^/]+)\/(.+)$/)?.[1] || null
+      } else if (decodedName.startsWith('//')) {
+        // 协议相对 URL
+        cosKey = decodedName.match(/\/\/[^/]+\/(.+)$/)?.[1] || null
+      } else {
+        // 纯 key
+        cosKey = decodedName
       }
-    }
-    // 签名生成失败，尝试直接返回（公有桶可能有效）
-    if (isCosUrl(name)) {
-      const url = name.startsWith('//') ? `https:${name}` : name.startsWith('http') ? name : `https://${name}`
-      return sendRedirect(event, url, 302)
+
+      if (cosKey) {
+        // 清理 key 中的查询参数
+        const cleanKey = cosKey.split(/[?#]/)[0]
+        const signedUrl = await getCosSignedUrl(cleanKey, 3600)
+        if (signedUrl) {
+          console.log(`[Files] COS 预签名重定向: ${cleanKey}`)
+          return sendRedirect(event, signedUrl, 302)
+        }
+      }
     }
   }
 
-  // 本地文件处理
-  // 获取文件信息
-  const fileInfo = getFileInfo(name)
+  // ========================================
+  // 本地存储处理
+  // ========================================
+  const fileInfo = getFileInfo(decodedName)
   if (!fileInfo) {
     throw createError({
       statusCode: 404,
@@ -100,7 +112,7 @@ export default defineEventHandler(async (event) => {
     setHeader(event, 'Cache-Control', 'public, max-age=31536000, immutable')
 
     // 创建文件流并返回
-    const stream = createFileStream(name, start, end)
+    const stream = createFileStream(decodedName, start, end)
     if (!stream) {
       throw createError({
         statusCode: 500,
@@ -122,7 +134,7 @@ export default defineEventHandler(async (event) => {
 
   if (isLargeFile) {
     // 大文件使用流式响应
-    const stream = createFileStream(name)
+    const stream = createFileStream(decodedName)
     if (!stream) {
       throw createError({
         statusCode: 500,
@@ -132,7 +144,7 @@ export default defineEventHandler(async (event) => {
     return sendStream(event, stream)
   } else {
     // 小文件直接返回 buffer
-    const result = readFile(name)
+    const result = readFile(decodedName)
     if (!result) {
       throw createError({
         statusCode: 500,
