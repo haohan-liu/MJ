@@ -77,14 +77,10 @@ export async function uploadToCos(
         return
       }
 
-      // 优先使用 SDK 返回的 Location（CDN 加速地址），兜底手动拼接
-      let rawUrl = (data as any)?.Location || `https://${config.bucket}.cos.${config.region}.myqcloud.com/${key}`
-      // 补全协议头：处理 //bucket... 或 bucket.cos... 等无协议情况
-      if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
-        rawUrl = rawUrl.startsWith('//') ? `https:${rawUrl}` : `https://${rawUrl}`
-      }
-      console.log('[COS] 已上传:', key, '->', rawUrl)
-      resolve({ url: rawUrl, key })
+      // 数据库和所有调用方统一存 key（相对路径），不在这里拼接 https://
+      // 读取时由 resolveResourceUrl 统一用 getCosSignedUrl 构造带签名的完整外链
+      console.log('[COS] 已上传:', key)
+      resolve({ url: key, key })
     })
   })
 }
@@ -182,12 +178,17 @@ export async function getCosSignedUrl(key: string, expires: number = 3600): Prom
 export function extractCosKeyFromUrl(url: string): string | null {
   if (!url) return null
 
-  // 格式 1: https://bucket.cos.region.myqcloud.com/key?sign=...
-  // 格式 2: https://bucket.cos.region.myqcloud.com/key
-  // 格式 3: //bucket.cos.region.myqcloud.com/key
-  const match = url.match(/\.myqcloud\.com\/([^?#]+)/)
+  // COS URL 匹配所有变体格式：
+  // 1. https://bucket.cos.region.myqcloud.com/key
+  // 2. //bucket.cos.region.myqcloud.com/key   （协议相对，SDK 返回）
+  // 3. bucket.cos.region.myqcloud.com/key      （裸域名）
+  // 4. //bucket.myqcloud.com/key                （旧格式或 CDN）
+  // 5. https://cos.xxx.com/key                 （自定义 CDN 域名）
+  // 6. https://bucket-appid.cos.ap-guangzhou.myqcloud.com/key
+  // 支持 ?sign=... 或 #... 等尾部参数
+  const match = url.match(/(?:\/\/)?(?:[^/]+\.)?(?:myqcloud\.com|cos\.[^/]+)\/(.+)$/)
   if (match && match[1]) {
-    return decodeURIComponent(match[1])
+    return decodeURIComponent(match[1].split(/[?#]/)[0])
   }
 
   return null

@@ -9,6 +9,7 @@
  */
 
 import { readFileAsBase64 } from '../file'
+import { extractCosKeyFromUrl, getCosSignedUrl } from '../cosStorage'
 import type { SyncProvider, SyncResult, GenerateParams } from './types'
 import { logTaskRequest, logTaskResponse } from '../../utils/httpLogger'
 import { classifyFetchError, extractFetchErrorInfo, ERROR_MESSAGES } from '../errorClassifier'
@@ -556,9 +557,10 @@ export const nanoBananaProvider: SyncProvider = {
     /**
      * 将参考图 URL 强制转换为 Base64
      * Gemini/Imagen API 禁止直接发送图片 URL，必须转换为 base64 格式
-     * - data:image/xxx;base64,... → 直接返回
-     * - /api/files/xxx → 读取本地文件
-     * - http(s)://xxx → 下载远程文件
+     * 优先级：本地文件 > COS 签名 URL（绕过 403）> COS 公网 URL > 其他公网 URL
+     *
+     * @param url 原始 URL
+     * @returns base64 data URL 或 undefined（失败时）
      */
     async function convertImageUrlToBase64(url: string): Promise<string | undefined> {
       if (!url) return undefined
@@ -569,37 +571,69 @@ export const nanoBananaProvider: SyncProvider = {
         return url
       }
 
-      // 本地文件：/api/files/xxx 或完整本地路径
-      const localMatch = url.match(/\/api\/files\/(.+)$/)
+      // ── 1. 本地文件路径：直接读磁盘，绕过所有网络层 ──────────────────
+      // 覆盖 /api/files/xxx、/uploads/xxx 及其子路径
+      const localMatch = url.match(/^\/(?:api\/files|uploads)\/(.+)$/)
       if (localMatch) {
         const fileName = localMatch[1]
-        const base64 = readFileAsBase64(fileName)
-        if (base64) {
-          debugLog(`[ImageConvert] 本地文件转换成功: ${fileName}，长度: ${base64.length}`)
-          return base64
+        try {
+          const base64 = readFileAsBase64(fileName)
+          if (base64) {
+            debugLog(`[ImageConvert] 本地文件转换成功: ${fileName}，长度: ${base64.length}`)
+            return base64
+          }
+        } catch (err) {
+          console.warn(`[NanoBanana] 本地参考图读取失败: ${fileName}`, err)
         }
-        console.warn(`[NanoBanana] 本地参考图读取失败: ${fileName}`)
         return undefined
       }
 
-      // 腾讯云 COS 文件：https://bucket.cos.region.myqcloud.com/key
-      if (url.includes('.myqcloud.com')) {
+      // ── 2. 腾讯云 COS URL（含所有变体）───────────────────────────────
+      // 变体：bucket.cos.region.myqcloud.com、//bucket.cos...、//bucket.myqcloud...
+      const cosKey = extractCosKeyFromUrl(url)
+      if (cosKey) {
+        debugLog(`[ImageConvert] 检测到 COS 文件，key: ${cosKey}`)
+
+        // 优先：尝试用 COS SDK 生成带签名的访问 URL（有权限，绕过 403）
+        try {
+          const signedUrl = await getCosSignedUrl(cosKey, 900)  // 签名 15 分钟
+          if (signedUrl) {
+            debugLog(`[ImageConvert] COS 签名 URL 获取成功，尝试下载...`)
+            const response = await fetchFn(signedUrl, { method: 'GET' })
+            if (response.ok) {
+              const buffer = await response.arrayBuffer()
+              const contentType = response.headers.get('content-type') || 'image/png'
+              const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
+              debugLog(`[ImageConvert] COS 文件（签名 URL）转换成功: ${base64.length} bytes`)
+              return base64
+            } else {
+              console.warn(`[NanoBanana] COS 签名 URL 下载失败 HTTP ${response.status}: ${signedUrl.substring(0, 80)}`)
+            }
+          }
+        } catch (err) {
+          console.warn(`[NanoBanana] COS 签名 URL 下载异常: ${err}`)
+        }
+
+        // 降级：直接用原始 COS URL（公网，可能 403）
         try {
           const response = await fetchFn(url, { method: 'GET' })
           if (response.ok) {
             const buffer = await response.arrayBuffer()
             const contentType = response.headers.get('content-type') || 'image/png'
             const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
-            debugLog(`[ImageConvert] COS 文件转换成功: ${url.substring(0, 60)}...，长度: ${base64.length}`)
+            debugLog(`[ImageConvert] COS 文件（公网 URL）转换成功: ${base64.length} bytes`)
             return base64
+          } else {
+            console.warn(`[NanoBanana] COS 公网 URL 下载失败 HTTP ${response.status}: ${url.substring(0, 80)}`)
           }
         } catch (err) {
-          console.error(`[NanoBanana] COS 参考图下载失败: ${url}`, err)
+          console.warn(`[NanoBanana] COS 公网 URL 下载异常: ${err}`)
         }
+
         return undefined
       }
 
-      // 其他远程 URL（http/https）
+      // ── 3. 其他公网 URL ──────────────────────────────────────────────
       if (url.startsWith('http://') || url.startsWith('https://')) {
         try {
           const response = await fetchFn(url, { method: 'GET' })
@@ -609,15 +643,17 @@ export const nanoBananaProvider: SyncProvider = {
             const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
             debugLog(`[ImageConvert] 远程 URL 转换成功: ${url.substring(0, 60)}...，长度: ${base64.length}`)
             return base64
+          } else {
+            console.warn(`[NanoBanana] 远程参考图下载失败 HTTP ${response.status}: ${url.substring(0, 80)}`)
           }
         } catch (err) {
-          console.error(`[NanoBanana] 远程参考图下载失败: ${url}`, err)
+          console.warn(`[NanoBanana] 远程参考图下载异常: ${url.substring(0, 80)}`, err)
         }
         return undefined
       }
 
-      // 兜底：保留原值（不应该走到这里）
-      console.warn(`[NanoBanana] 参考图无法转换，保持原值: ${url}`)
+      // ── 4. 未知格式 ──────────────────────────────────────────────────
+      console.warn(`[NanoBanana] 参考图无法识别和转换，保持原值: ${url}`)
       return url
     }
 

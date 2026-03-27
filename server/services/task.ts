@@ -14,19 +14,19 @@ import { getCosSignedUrl, ensureHttpsUrl } from './cosStorage'
 
 /**
  * 将任务的 resourceUrl 转为可访问的 URL
- * - COS 存储：key 路径 → 动态生成签名 URL（1小时有效）
- * - 本地存储：直接返回
+ * - COS 存储：统一存 key → 动态生成带签名外链（1小时有效）
+ * - 本地存储：直接返回相对路径
+ * - 兼容旧数据：即使是旧的完整 URL，也能正确提取 key
  */
 async function resolveResourceUrl(task: Task): Promise<string | null> {
   if (!task.resourceUrl) return null
   if (task.resourceStorage === 'cos') {
-    // COS key 不含 http，或者是旧的带签名 URL（.myqcloud.com）都处理
+    // 提取 key：可能是纯 key，也可能是旧数据（https://bucket.cos.../key）
     const key = task.resourceUrl.includes('.myqcloud.com')
       ? task.resourceUrl.match(/\.myqcloud\.com\/([^?]+)/)?.[1] ?? task.resourceUrl
       : task.resourceUrl
     const signedUrl = await getCosSignedUrl(key, 3600)
-    // getCosSignedUrl 已补全 https://，fallback 也要补全
-    return signedUrl ?? ensureHttpsUrl(task.resourceUrl)
+    return signedUrl ?? `https://${task.resourceUrl}`
   }
   return task.resourceUrl
 }

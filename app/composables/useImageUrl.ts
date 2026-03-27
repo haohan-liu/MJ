@@ -1,9 +1,12 @@
 /**
  * 图片 URL 格式化工具
  *
- * 智能区分：
+ * 原则：只做路径拼接，不做云存储域名检测
  * - 已是完整 URL（http/https 或 data:image/...）→ 直接返回
- * - 本地相对路径（/api/files/... 或 /uploads/...）→ 拼接 runtimeConfig.publicUrl
+ * - 其他所有情况 → 统一拼接为 [baseUrl]/api/files/[相对路径]
+ *
+ * 注意：云存储（COS）的预签名逻辑在后端 /api/files/[name].get.ts 中统一处理，
+ * 前端无需关心 URL 是本地文件还是 COS key，全部走同一路由即可。
  */
 export function useImageUrl() {
   const config = useRuntimeConfig()
@@ -14,35 +17,40 @@ export function useImageUrl() {
 
   /**
    * 将任意 URL 格式化为浏览器可访问的完整 URL
-   * @param url 原始 URL（可能是本地路径、COS URL 或 data:image/...）
+   *
+   * 路由规则：
+   * - `http://...` / `https://...` / `data:image/...` → 直接返回
+   * - `/api/files/xxx`（本地存储的 result.url）→ 拼接 base
+   * - `images/2026-03/xxx.png`（相对路径，COS key）→ /api/files/images/2026-03/xxx.png
+   * - `//bucket.cos...`（协议相对 URL，来自 COS SDK）→ 补全 https://
+   *
+   * @param url 原始 URL
    */
   function formatImageUrl(url: string | null | undefined): string {
     if (!url) return ''
 
-    // 已是完整 URL 或 Base64，直接返回
+    // 已是完整 URL 或 Base64 → 直接返回
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
       return url
     }
 
-    // 关键防御：识别云存储域名特征，强制补全 https://
-    // 覆盖 myqcloud.com（腾讯云 COS）、aliyuncs.com（阿里云 OSS）、amazonaws.com（AWS S3）
-    // 识别模式：包含这些域名的字符串，且不是以 / 开头（/ 开头的才是本地路径）
-    if (!url.startsWith('/') && (
-      url.includes('myqcloud.com') ||
-      url.includes('.cos.') ||
-      url.includes('aliyuncs.com') ||
-      url.includes('amazonaws.com') ||
-      url.includes('azureedge.net') ||
-      url.includes('cloudfront.net')
-    )) {
-      // 处理 //bucket.cos... 协议相对 URL
-      return url.startsWith('//') ? `https:${url}` : `https://${url}`
+    // 协议相对 URL（如 //bucket.cos...，COS SDK 返回格式）→ 补全 https://
+    if (url.startsWith('//')) {
+      return `https:${url}`
     }
 
-    // 本地相对路径：拼接 publicUrl
+    // 相对路径统一走 /api/files/ 路由
     const base = publicUrl.value.replace(/\/$/, '')
     const path = url.replace(/^\//, '')
-    return `${base}/${path}`
+
+    // 如果已经是 /api/files/ 开头（本地存储的 result.url），直接拼接 base
+    // 避免双重前缀：/api/files/filename.png → base/api/files/filename.png
+    if (path.startsWith('api/files/')) {
+      return `${base}/${path}`
+    }
+
+    // 否则添加前缀（COS 存的是 images/... 相对路径，或上传后的纯文件名）
+    return `${base}/api/files/${path}`
   }
 
   return {

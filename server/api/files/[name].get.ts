@@ -1,6 +1,9 @@
 // 获取文件（支持 Range 请求，用于视频播放）
+// COS 私有桶文件走预签名重定向，本地文件走本地流
 import { getFileInfo, createFileStream, readFile } from '../../services/file'
-import { sendStream } from 'h3'
+import { getCosSignedUrl, isCosUrl } from '../../services/cosStorage'
+import { getStorageType } from '../../services/file'
+import { sendStream, sendRedirect } from 'h3'
 
 export default defineEventHandler(async (event) => {
   const name = getRouterParam(event, 'name')
@@ -12,6 +15,36 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  // 检查是否为 COS 私有桶存储
+  // 优先根据 name 本身判断（不包含 .myqcloud.com 的是 COS key，包含的是本地文件或旧格式 URL）
+  const storageType = await getStorageType()
+  const isCosStorage = storageType === 'cos'
+  const nameContainsCosDomain = isCosUrl(name)
+
+  // 私有 COS 桶：name 是纯粹的 key（如 images/2026-03/xxx.png），需要生成预签名重定向
+  // 公有 COS 桶：name 本身包含完整域名（如 https://bucket.cos.../key），直接重定向
+  // 旧数据兼容：name 可能是 https://bucket.cos.../key 格式
+  if (isCosStorage && (isCosUrl(name) || !name.includes('/uploads/'))) {
+    // 提取 COS key
+    const cosKey = isCosUrl(name)
+      ? name.match(/(?:\/\/)?(?:[^/]+\.)?(?:myqcloud\.com|cos\.[^/]+)\/(.+)$/)?.[1]
+      : name
+
+    if (cosKey) {
+      const decodedKey = decodeURIComponent(cosKey.split(/[?#]/)[0])
+      const signedUrl = await getCosSignedUrl(decodedKey, 3600)
+      if (signedUrl) {
+        return sendRedirect(event, signedUrl, 302)
+      }
+    }
+    // 签名生成失败，尝试直接返回（公有桶可能有效）
+    if (isCosUrl(name)) {
+      const url = name.startsWith('//') ? `https:${name}` : name.startsWith('http') ? name : `https://${name}`
+      return sendRedirect(event, url, 302)
+    }
+  }
+
+  // 本地文件处理
   // 获取文件信息
   const fileInfo = getFileInfo(name)
   if (!fileInfo) {
