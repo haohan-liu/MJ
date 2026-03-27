@@ -269,19 +269,23 @@ export async function forceCleanupAllExpired(): Promise<CleanupStats> {
 // ============================================================================
 
 export interface NuclearCleanupStats {
-  /** 本地任务文件数 */
-  taskLocalFiles: number
-  /** COS 任务文件数 */
-  taskCosFiles: number
-  /** 本地上传参考图数 */
-  uploadLocalFiles: number
-  /** COS 上传参考图数 */
-  uploadCosFiles: number
-  /** 总删除数 */
-  total: number
   /** 存储类型 */
   storageType: 'local' | 'cos'
-  /** 本地 uploads 目录剩余文件数（仅 local 模式） */
+  /** 实际物理删除的文件总数（用于前端展示） */
+  actualPhysicalDeleted: number
+  /** 任务文件：物理删除成功数 */
+  taskPhysicallyDeleted: number
+  /** 任务文件：幽灵记录数（数据库有记录，物理文件不存在） */
+  taskGhostRecords: number
+  /** 参考图：物理删除成功数 */
+  uploadPhysicallyDeleted: number
+  /** 参考图：幽灵记录数 */
+  uploadGhostRecords: number
+  /** 数据库标记任务记录数 */
+  tasksMarked: number
+  /** 数据库标记上传记录数 */
+  uploadsMarked: number
+  /** uploads 目录剩余文件数（仅 local 模式） */
   localRemainingFiles?: number
 }
 
@@ -294,8 +298,10 @@ export interface NuclearCleanupStats {
  * 它根据当前站点配置直接清空该存储位置的所有文件。
  * 仅当管理员主动点击"立即清理过期文件"按钮时调用。
  *
+ * 核心原则：只统计真实物理删除成功的文件数，不统计幽灵记录。
+ *
  * 行为：
- *  - local 模式：遍历 uploads/ 目录，删除所有文件；同时遍历数据库该存储的记录并标记
+ *  - local 模式：遍历 uploads/ 目录删除所有文件（孤儿清理）；同时对数据库记录的 URL 尝试物理删除
  *  - cos 模式：遍历数据库中所有 storage=cos 的记录，逐个调用 COS deleteObject
  */
 export async function nuclearCleanupByStorage(): Promise<NuclearCleanupStats> {
@@ -307,37 +313,22 @@ export async function nuclearCleanupByStorage(): Promise<NuclearCleanupStats> {
   const storageType = (storageTypeStr === 'cos' ? 'cos' : 'local') as 'local' | 'cos'
 
   const stats: NuclearCleanupStats = {
-    taskLocalFiles: 0,
-    taskCosFiles: 0,
-    uploadLocalFiles: 0,
-    uploadCosFiles: 0,
-    total: 0,
     storageType,
+    actualPhysicalDeleted: 0,
+    taskPhysicallyDeleted: 0,
+    taskGhostRecords: 0,
+    uploadPhysicallyDeleted: 0,
+    uploadGhostRecords: 0,
+    tasksMarked: 0,
+    uploadsMarked: 0,
+    localRemainingFiles: 0,
   }
 
   console.log(`[NuclearCleanup] 核弹级全量清理开始，存储类型: ${storageType}`)
 
   // ========================= 本地清理 =========================
   if (storageType === 'local') {
-    // 1. 遍历 uploads 目录物理删除所有文件（兜底清理游离文件）
-    let localFilesDeleted = 0
-
-    if (existsSync(UPLOAD_DIR)) {
-      const files = readdirSync(UPLOAD_DIR)
-      for (const file of files) {
-        const filePath = join(UPLOAD_DIR, file)
-        try {
-          unlinkSync(filePath)
-          localFilesDeleted++
-          console.log(`[NuclearCleanup] 删除本地文件: ${file}`)
-        } catch (err) {
-          console.error(`[NuclearCleanup] 删除本地文件失败: ${file}`, err)
-        }
-      }
-      stats.localRemainingFiles = existsSync(UPLOAD_DIR) ? readdirSync(UPLOAD_DIR).length : 0
-    }
-
-    // 2. 遍历数据库本地任务，标记 resourceDeleted
+    // 1. 遍历数据库本地任务记录，尝试物理删除每个文件
     const allLocalTasks = await db.query.tasks.findMany({
       where: and(
         isNotNull(tasks.resourceUrl),
@@ -348,43 +339,88 @@ export async function nuclearCleanupByStorage(): Promise<NuclearCleanupStats> {
     })
 
     for (const task of allLocalTasks) {
+      if (!task.resourceUrl) continue
+
+      // 提取本地路径并尝试物理删除
+      const fileName = task.resourceUrl.replace(/^\/uploads\//, '').replace(/^\/api\/files\//, '').replace(/^\//, '')
+      const filePath = join(UPLOAD_DIR, fileName)
+
+      try {
+        unlinkSync(filePath)
+        stats.taskPhysicallyDeleted++
+        stats.actualPhysicalDeleted++
+        console.log(`[NuclearCleanup] 物理删除任务文件: ${fileName}`)
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') {
+          // 幽灵记录：物理文件不存在
+          stats.taskGhostRecords++
+          console.log(`[NuclearCleanup] 幽灵记录（文件不存在）: ${fileName}`)
+        } else {
+          console.error(`[NuclearCleanup] 删除任务文件失败: ${fileName}`, err)
+        }
+      }
+
+      // 标记数据库（无论物理文件是否存在，都标记以避免重复扫描）
       try {
         await db.update(tasks)
           .set({ resourceDeleted: true })
           .where(eq(tasks.id, task.id))
+        stats.tasksMarked++
       } catch {
         // 忽略
       }
     }
-    stats.taskLocalFiles = allLocalTasks.length
 
-    // 3. 遍历数据库本地上传参考图，标记 deleted
+    // 2. 遍历数据库本地上传参考图记录，尝试物理删除
     const allLocalUploads = await db.query.uploadedImages.findMany({
       where: sql`(${uploadedImages.storage} IS NULL OR ${uploadedImages.storage} = 'local')`,
       columns: { id: true, url: true },
     })
 
     for (const upload of allLocalUploads) {
+      if (!upload.url) continue
+
+      const fileName = upload.url.replace(/^\/uploads\//, '').replace(/^\/api\/files\//, '').replace(/^\//, '')
+      const filePath = join(UPLOAD_DIR, fileName)
+
+      try {
+        unlinkSync(filePath)
+        stats.uploadPhysicallyDeleted++
+        stats.actualPhysicalDeleted++
+        console.log(`[NuclearCleanup] 物理删除参考图文件: ${fileName}`)
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') {
+          stats.uploadGhostRecords++
+          console.log(`[NuclearCleanup] 参考图幽灵记录（文件不存在）: ${fileName}`)
+        } else {
+          console.error(`[NuclearCleanup] 删除参考图文件失败: ${fileName}`, err)
+        }
+      }
+
+      // 标记数据库
       try {
         await db.update(uploadedImages)
           .set({ deleted: true })
           .where(eq(uploadedImages.id, upload.id))
+        stats.uploadsMarked++
       } catch {
         // 忽略
       }
     }
-    stats.uploadLocalFiles = allLocalUploads.length
-    stats.total = localFilesDeleted + stats.taskLocalFiles + stats.uploadLocalFiles
 
     console.log(
-      `[NuclearCleanup] 完成（本地）: 游离文件 ${localFilesDeleted} + 任务记录 ${stats.taskLocalFiles}`
-      + ` + 参考图记录 ${stats.uploadLocalFiles} = 总计 ${stats.total}，目录剩余 ${stats.localRemainingFiles} 个文件`,
+      `[NuclearCleanup] 完成（本地）:`,
+      `任务物理删除 ${stats.taskPhysicallyDeleted}, 幽灵记录 ${stats.taskGhostRecords},`,
+      `参考图物理删除 ${stats.uploadPhysicallyDeleted}, 幽灵记录 ${stats.uploadGhostRecords},`,
+      `总计实际删除 ${stats.actualPhysicalDeleted},`,
+      `数据库标记任务 ${stats.tasksMarked}, 参考图 ${stats.uploadsMarked},`,
+      `目录剩余 ${stats.localRemainingFiles}`,
     )
   }
 
   // ========================= COS 清理 =========================
   if (storageType === 'cos') {
-    // 1. 遍历数据库所有 COS 任务，逐个从 COS 删除并标记
+    // 1. 遍历数据库所有 COS 任务，逐个从 COS 删除
     const allCosTasks = await db.query.tasks.findMany({
       where: and(
         isNotNull(tasks.resourceUrl),
@@ -396,22 +432,34 @@ export async function nuclearCleanupByStorage(): Promise<NuclearCleanupStats> {
 
     for (const task of allCosTasks) {
       if (!task.resourceUrl) continue
+
       try {
         const deleted = await deleteFileUnified(task.resourceUrl, 'cos')
-        if (deleted) stats.taskCosFiles++
-        // 即使 COS 删除失败（文件已不存在），也继续标记数据库
-        await db.update(tasks)
-          .set({ resourceDeleted: true })
-          .where(eq(tasks.id, task.id))
+        if (deleted) {
+          stats.taskPhysicallyDeleted++
+          stats.actualPhysicalDeleted++
+          console.log(`[NuclearCleanup] COS 物理删除任务文件: ${task.resourceUrl.substring(0, 60)}...`)
+        } else {
+          // deleteFileUnified 返回 false 表示文件不存在（COS 已删除或无权限）
+          stats.taskGhostRecords++
+          console.log(`[NuclearCleanup] COS 任务文件不存在（幽灵记录）: ${task.resourceUrl.substring(0, 60)}...`)
+        }
       } catch (err) {
-        console.error(`[NuclearCleanup] 删除 COS 任务文件失败: ${task.resourceUrl}`, err)
+        console.error(`[NuclearCleanup] COS 删除任务文件异常: ${task.resourceUrl.substring(0, 60)}...`, err)
+      }
+
+      // 标记数据库
+      try {
         await db.update(tasks)
           .set({ resourceDeleted: true })
           .where(eq(tasks.id, task.id))
+        stats.tasksMarked++
+      } catch {
+        // 忽略
       }
     }
 
-    // 2. 遍历数据库所有 COS 上传参考图，逐个从 COS 删除并标记
+    // 2. 遍历数据库所有 COS 上传参考图，逐个从 COS 删除
     const allCosUploads = await db.query.uploadedImages.findMany({
       where: eq(uploadedImages.storage, 'cos'),
       columns: { id: true, url: true },
@@ -419,25 +467,38 @@ export async function nuclearCleanupByStorage(): Promise<NuclearCleanupStats> {
 
     for (const upload of allCosUploads) {
       if (!upload.url) continue
+
       try {
         const deleted = await deleteFileUnified(upload.url, 'cos')
-        if (deleted) stats.uploadCosFiles++
-        await db.update(uploadedImages)
-          .set({ deleted: true })
-          .where(eq(uploadedImages.id, upload.id))
+        if (deleted) {
+          stats.uploadPhysicallyDeleted++
+          stats.actualPhysicalDeleted++
+          console.log(`[NuclearCleanup] COS 物理删除参考图: ${upload.url.substring(0, 60)}...`)
+        } else {
+          stats.uploadGhostRecords++
+          console.log(`[NuclearCleanup] COS 参考图不存在（幽灵记录）: ${upload.url.substring(0, 60)}...`)
+        }
       } catch (err) {
-        console.error(`[NuclearCleanup] 删除 COS 参考图失败: ${upload.url}`, err)
+        console.error(`[NuclearCleanup] COS 删除参考图异常: ${upload.url.substring(0, 60)}...`, err)
+      }
+
+      // 标记数据库
+      try {
         await db.update(uploadedImages)
           .set({ deleted: true })
           .where(eq(uploadedImages.id, upload.id))
+        stats.uploadsMarked++
+      } catch {
+        // 忽略
       }
     }
 
-    stats.total = stats.taskCosFiles + stats.uploadCosFiles
-
     console.log(
-      `[NuclearCleanup] 完成（COS）: 任务文件 ${stats.taskCosFiles} + 参考图 ${stats.uploadCosFiles}`
-      + ` = 总计 ${stats.total}`,
+      `[NuclearCleanup] 完成（COS）:`,
+      `任务物理删除 ${stats.taskPhysicallyDeleted}, 幽灵记录 ${stats.taskGhostRecords},`,
+      `参考图物理删除 ${stats.uploadPhysicallyDeleted}, 幽灵记录 ${stats.uploadGhostRecords},`,
+      `总计实际删除 ${stats.actualPhysicalDeleted},`,
+      `数据库标记任务 ${stats.tasksMarked}, 参考图 ${stats.uploadsMarked}`,
     )
   }
 

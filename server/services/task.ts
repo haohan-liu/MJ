@@ -10,7 +10,7 @@ import { classifyFetchError, classifyError, ERROR_MESSAGES } from './errorClassi
 import { logTaskResponse } from '../utils/httpLogger'
 import { emitToUser, type TaskStatusUpdated, type TaskCreated, type TaskDeleted, type TaskRestored, type TaskBlurUpdated, type TasksBlurUpdated } from './globalEvents'
 import { getErrorMessage } from '../../app/shared/types'
-import { getCosSignedUrl } from './cosStorage'
+import { getCosSignedUrl, ensureHttpsUrl } from './cosStorage'
 
 /**
  * 将任务的 resourceUrl 转为可访问的 URL
@@ -25,7 +25,8 @@ async function resolveResourceUrl(task: Task): Promise<string | null> {
       ? task.resourceUrl.match(/\.myqcloud\.com\/([^?]+)/)?.[1] ?? task.resourceUrl
       : task.resourceUrl
     const signedUrl = await getCosSignedUrl(key, 3600)
-    return signedUrl ?? task.resourceUrl
+    // getCosSignedUrl 已补全 https://，fallback 也要补全
+    return signedUrl ?? ensureHttpsUrl(task.resourceUrl)
   }
   return task.resourceUrl
 }

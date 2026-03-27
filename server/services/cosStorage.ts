@@ -70,18 +70,21 @@ export async function uploadToCos(
       Key: key,
       Body: buffer,
       ContentType: mimeType,
-    }, (err) => {
+    }, (err, data) => {
       if (err) {
         console.error('[COS] 上传失败:', err)
         reject(err)
         return
       }
 
-      // 生成公网访问 URL
-      // 格式: https://bucket.cos.region.myqcloud.com/key
-      const url = `https://${config.bucket}.cos.${config.region}.myqcloud.com/${key}`
-      console.log('[COS] 已上传:', key, '->', url)
-      resolve({ url, key })
+      // 优先使用 SDK 返回的 Location（CDN 加速地址），兜底手动拼接
+      let rawUrl = (data as any)?.Location || `https://${config.bucket}.cos.${config.region}.myqcloud.com/${key}`
+      // 补全协议头：处理 //bucket... 或 bucket.cos... 等无协议情况
+      if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+        rawUrl = rawUrl.startsWith('//') ? `https:${rawUrl}` : `https://${rawUrl}`
+      }
+      console.log('[COS] 已上传:', key, '->', rawUrl)
+      resolve({ url: rawUrl, key })
     })
   })
 }
@@ -165,7 +168,8 @@ export async function getCosSignedUrl(key: string, expires: number = 3600): Prom
         resolve(null)
         return
       }
-      resolve(data.Url)
+      // 强制补全协议头，防止 SDK 返回 //bucket.cos... 导致前端无法渲染
+      resolve(ensureHttpsUrl(data.Url))
     })
   })
 }
@@ -187,6 +191,18 @@ export function extractCosKeyFromUrl(url: string): string | null {
   }
 
   return null
+}
+
+/**
+ * 确保 URL 带有协议头
+ * COS SDK 或 CDN 返回的 URL 可能缺少 https://，导致前端无法渲染
+ */
+export function ensureHttpsUrl(url: string): string {
+  if (!url) return url
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+  }
+  return `https://${url}`
 }
 
 /**

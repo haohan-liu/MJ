@@ -26,6 +26,7 @@ const emit = defineEmits<{
 
 const toast = useToast()
 const { settings, isLoaded: settingsLoaded, loadSettings } = useUserSettings()
+const { formatImageUrl } = useImageUrl()
 
 const prompt = ref('')
 const referenceImages = ref<string[]>([])
@@ -438,7 +439,7 @@ defineExpose({
           </template>
           <div class="flex gap-3">
             <div v-if="veoFirstFrame" class="relative w-24 h-24 rounded-lg overflow-hidden group">
-              <img :src="veoFirstFrame" class="w-full h-full object-cover" />
+              <img :src="formatImageUrl(veoFirstFrame)" class="w-full h-full object-cover" />
               <button
                 type="button"
                 class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
@@ -470,7 +471,7 @@ defineExpose({
           </template>
           <div class="flex gap-3">
             <div v-if="veoLastFrame" class="relative w-24 h-24 rounded-lg overflow-hidden group">
-              <img :src="veoLastFrame" class="w-full h-full object-cover" />
+              <img :src="formatImageUrl(veoLastFrame)" class="w-full h-full object-cover" />
               <button
                 type="button"
                 class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
@@ -504,7 +505,7 @@ defineExpose({
         </template>
         <div class="flex gap-3 flex-wrap">
           <div v-if="referenceImages.length > 0" class="relative w-24 h-24 rounded-lg overflow-hidden group">
-            <img :src="referenceImages[0]" class="w-full h-full object-cover" />
+            <img :src="formatImageUrl(referenceImages[0])" class="w-full h-full object-cover" />
             <button
               type="button"
               class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
@@ -617,7 +618,7 @@ defineExpose({
       </template>
       <div class="flex gap-3 flex-wrap">
         <div v-if="referenceImages.length > 0" class="relative w-24 h-24 rounded-lg overflow-hidden group">
-          <img :src="referenceImages[0]" class="w-full h-full object-cover" />
+          <img :src="formatImageUrl(referenceImages[0])" class="w-full h-full object-cover" />
           <button
             type="button"
             class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"

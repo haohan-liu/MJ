@@ -665,11 +665,17 @@ export async function deleteFileUnified(
 
   if (effectiveStorage === 'cos') {
     const key = extractCosKeyFromUrl(resourceUrl)
-    if (key) {
-      return await deleteFromCos(key)
+    if (!key) {
+      console.warn('[File] 无法从 URL 提取 COS key，跳过删除:', resourceUrl)
+      return false
     }
-    console.warn('[File] 无法从 URL 提取 COS key，跳过删除:', resourceUrl)
-    return false
+    // 先验尸：检查 COS 文件是否存在，避免 SDK 对不存在的文件返回 false 而导致幽灵记录被计入删除数
+    const exists = await checkCosFileExists(key)
+    if (!exists) {
+      console.log('[File] COS 文件不存在，跳过删除:', key)
+      return false
+    }
+    return await deleteFromCos(key)
   }
 
   // 本地文件：尝试多种路径格式

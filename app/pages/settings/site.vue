@@ -16,13 +16,7 @@ if (user.value?.role !== 'admin') {
 const isLoading = ref(true)
 const isSaving = ref(false)
 const isCleaningUp = ref(false)
-const cleanupResult = ref<{
-  total: number
-  taskLocalFiles: number
-  taskCosFiles: number
-  uploadLocalFiles: number
-  uploadCosFiles: number
-} | null>(null)
+const cleanedCount = ref<number | null>(null)
 
 // 表单数据
 const form = reactive({
@@ -110,24 +104,22 @@ async function saveSettings() {
 // 手动触发清理过期任务
 async function handleCleanup() {
   isCleaningUp.value = true
-  cleanupResult.value = null
+  cleanedCount.value = null
   try {
     const result = await $fetch<{
       success: boolean
-      stats: {
-        total: number
-        taskLocalFiles: number
-        taskCosFiles: number
-        uploadLocalFiles: number
-        uploadCosFiles: number
-      }
+      count: number
       message: string
     }>('/api/admin/cleanup-tasks', {
       method: 'POST',
     })
     if (result.success) {
-      cleanupResult.value = result.stats
-      toast.add({ title: result.message, color: 'success' })
+      // 防呆兜底：确保为数字而非 undefined/null，避免 NaN
+      cleanedCount.value = result.count ?? 0
+      toast.add({
+        title: `清除成功，清除了 ${cleanedCount.value} 个文件`,
+        color: 'success',
+      })
     }
   } catch (error: any) {
     toast.add({
@@ -271,10 +263,10 @@ onMounted(() => {
                 @click="handleCleanup"
               >
                 <UIcon name="i-heroicons-trash" class="w-4 h-4 mr-1" />
-                立即清理过期文件
+                立即清理文件
               </UButton>
-              <span v-if="cleanupResult" class="text-sm text-(--ui-text-muted)">
-                已清理 {{ cleanupResult.total }} 个文件（本地: {{ cleanupResult.taskLocalFiles + cleanupResult.uploadLocalFiles }}，COS: {{ cleanupResult.taskCosFiles + cleanupResult.uploadCosFiles }}）
+              <span v-if="cleanedCount !== null" class="text-sm text-(--ui-text-muted)">
+                已清理 {{ cleanedCount ?? 0 }} 个文件
               </span>
             </div>
           </div>

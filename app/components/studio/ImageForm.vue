@@ -27,6 +27,7 @@ const emit = defineEmits<{
 
 const toast = useToast()
 const { getAuthHeader } = useAuth()
+const { formatImageUrl } = useImageUrl()
 const { settings, isLoaded: settingsLoaded, loadSettings } = useUserSettings()
 
 const prompt = ref('')
@@ -832,7 +833,7 @@ defineExpose({
           :key="index"
           class="relative w-24 h-24 rounded-lg overflow-hidden group"
         >
-          <img :src="img" class="w-full h-full object-cover" />
+          <img :src="formatImageUrl(img)" class="w-full h-full object-cover" />
           <button
             type="button"
             class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"

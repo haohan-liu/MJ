@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const { tasks, isLoading, currentPage, pageSize, total, loadTrash, restoreTask, emptyTrash } = useTrash()
 const toast = useToast()
+const { formatImageUrl } = useImageUrl()
 
 // 计算总页数
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
@@ -113,7 +114,7 @@ function formatDeletedTime(deletedAt: string | null) {
           <div class="aspect-square rounded-lg overflow-hidden bg-(--ui-bg) mb-3">
             <img
               v-if="task.resourceUrl"
-              :src="task.resourceUrl"
+              :src="formatImageUrl(task.resourceUrl)"
               alt="生成的图片"
               class="w-full h-full object-cover"
             />

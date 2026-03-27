@@ -8,6 +8,7 @@
  * - gemini-3.1-flash-image-preview: 全功能支持，包含极端宽高比
  */
 
+import { readFileAsBase64 } from '../file'
 import type { SyncProvider, SyncResult, GenerateParams } from './types'
 import { logTaskRequest, logTaskResponse } from '../../utils/httpLogger'
 import { classifyFetchError, extractFetchErrorInfo, ERROR_MESSAGES } from '../errorClassifier'
@@ -552,6 +553,74 @@ export const nanoBananaProvider: SyncProvider = {
       return extractBase64(imageDataUrl)
     }
 
+    /**
+     * 将参考图 URL 强制转换为 Base64
+     * Gemini/Imagen API 禁止直接发送图片 URL，必须转换为 base64 格式
+     * - data:image/xxx;base64,... → 直接返回
+     * - /api/files/xxx → 读取本地文件
+     * - http(s)://xxx → 下载远程文件
+     */
+    async function convertImageUrlToBase64(url: string): Promise<string | undefined> {
+      if (!url) return undefined
+
+      // 已经是 base64 data URL，直接返回
+      if (url.startsWith('data:')) {
+        debugLog(`[ImageConvert] 参考图已是 base64 data URL，长度: ${url.length}`)
+        return url
+      }
+
+      // 本地文件：/api/files/xxx 或完整本地路径
+      const localMatch = url.match(/\/api\/files\/(.+)$/)
+      if (localMatch) {
+        const fileName = localMatch[1]
+        const base64 = readFileAsBase64(fileName)
+        if (base64) {
+          debugLog(`[ImageConvert] 本地文件转换成功: ${fileName}，长度: ${base64.length}`)
+          return base64
+        }
+        console.warn(`[NanoBanana] 本地参考图读取失败: ${fileName}`)
+        return undefined
+      }
+
+      // 腾讯云 COS 文件：https://bucket.cos.region.myqcloud.com/key
+      if (url.includes('.myqcloud.com')) {
+        try {
+          const response = await fetchFn(url, { method: 'GET' })
+          if (response.ok) {
+            const buffer = await response.arrayBuffer()
+            const contentType = response.headers.get('content-type') || 'image/png'
+            const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
+            debugLog(`[ImageConvert] COS 文件转换成功: ${url.substring(0, 60)}...，长度: ${base64.length}`)
+            return base64
+          }
+        } catch (err) {
+          console.error(`[NanoBanana] COS 参考图下载失败: ${url}`, err)
+        }
+        return undefined
+      }
+
+      // 其他远程 URL（http/https）
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        try {
+          const response = await fetchFn(url, { method: 'GET' })
+          if (response.ok) {
+            const buffer = await response.arrayBuffer()
+            const contentType = response.headers.get('content-type') || 'image/png'
+            const base64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`
+            debugLog(`[ImageConvert] 远程 URL 转换成功: ${url.substring(0, 60)}...，长度: ${base64.length}`)
+            return base64
+          }
+        } catch (err) {
+          console.error(`[NanoBanana] 远程参考图下载失败: ${url}`, err)
+        }
+        return undefined
+      }
+
+      // 兜底：保留原值（不应该走到这里）
+      console.warn(`[NanoBanana] 参考图无法转换，保持原值: ${url}`)
+      return url
+    }
+
     // ============================================================
     // Gemini 原生格式 - 文生图
     // ============================================================
@@ -564,8 +633,10 @@ export const nanoBananaProvider: SyncProvider = {
       // 清理废弃字段，只保留 NanoBanana 支持的参数
       const cleanParams = sanitizeModelParams(modelParams)
 
-      // 提取参考图
-      const imageData = images && images.length > 0 ? extractImageData(images[0]) : undefined
+      // 提取参考图（强制 URL → Base64 转换，Gemini API 不接受图片 URL）
+      const rawImageUrl = images && images.length > 0 ? images[0] : undefined
+      const imageBase64 = rawImageUrl ? await convertImageUrlToBase64(rawImageUrl) : undefined
+      const imageData = imageBase64 ? extractBase64(imageBase64) : undefined
 
       // 构建请求体（严格按模型能力组装）
       const body = buildGeminiNativeRequest({
@@ -658,8 +729,9 @@ export const nanoBananaProvider: SyncProvider = {
       // 清理废弃字段，只保留 NanoBanana 支持的参数
       const cleanParams = sanitizeModelParams(modelParams)
 
-      // 提取参考图
-      const imageData = images && images.length > 0 ? images[0] : undefined
+      // 提取参考图（强制 URL → Base64 转换）
+      const rawImageUrl = images && images.length > 0 ? images[0] : undefined
+      const imageBase64 = rawImageUrl ? await convertImageUrlToBase64(rawImageUrl) : undefined
 
       // 构建请求体（严格按模型能力组装）
       const body = buildOpenAICompatibleRequest({
@@ -667,7 +739,7 @@ export const nanoBananaProvider: SyncProvider = {
         modelName: effectiveModelName,
         resolution: cleanParams.size,
         aspectRatio: cleanParams.aspectRatio,
-        base64Image: imageData,
+        base64Image: imageBase64,
         enableWebSearch: cleanParams.webSearch,
         enableImageSearch: cleanParams.imageSearch,
         thinkingMode: cleanParams.thinkingMode,

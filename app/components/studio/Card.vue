@@ -9,6 +9,8 @@ import {
   PROGRESS_TIME_BUFFER_RATIO,
 } from '../../shared/constants'
 
+const { formatImageUrl } = useImageUrl()
+
 const props = defineProps<{
   task: Task
 }>()
@@ -243,14 +245,17 @@ const showRefImages = ref(false)
 
 // 下载图片
 function downloadImage() {
-  if (!props.task.resourceUrl) return
+  const rawUrl = props.task.resourceUrl
+  if (!rawUrl) return
+
+  const fullUrl = formatImageUrl(rawUrl)
 
   // 从 URL 中提取原文件名
-  const urlPath = props.task.resourceUrl.split('?')[0] // 移除查询参数
+  const urlPath = fullUrl.split('?')[0] // 移除查询参数
   const originalFileName = urlPath?.split('/').pop() || `mj-${props.task.id}.png`
 
   const a = document.createElement('a')
-  a.href = props.task.resourceUrl
+  a.href = fullUrl
   a.download = originalFileName
   a.target = '_blank'
   a.click()
@@ -264,7 +269,7 @@ function downloadImage() {
     <div class="aspect-square relative" :class="task.resourceUrl && !task.resourceDeleted && !isBlurred ? 'checkerboard-bg' : 'bg-(--ui-bg-muted)'">
       <img
         v-if="task.resourceUrl && !task.resourceDeleted"
-        :src="task.resourceUrl"
+        :src="formatImageUrl(task.resourceUrl)"
         :alt="task.prompt ?? ''"
         class="w-full h-full object-contain cursor-pointer transition-all duration-300"
         :class="isBlurred ? 'blur-xl scale-105' : ''"
@@ -461,7 +466,7 @@ function downloadImage() {
         <div class="relative bg-(--ui-bg) flex items-center justify-center">
           <img
             v-if="task.resourceUrl"
-            :src="task.resourceUrl"
+            :src="formatImageUrl(task.resourceUrl)"
             :alt="task.prompt ?? ''"
             class="max-h-[85vh]"
           />

@@ -15,6 +15,8 @@ const props = defineProps<{
   params: MjDrawingParams
 }>()
 
+const { formatImageUrl } = useImageUrl()>()
+
 const { on } = useGlobalEvents()
 
 // 任务状态
@@ -281,7 +283,7 @@ onUnmounted(() => {
       <!-- 成功时显示图片 -->
       <img
         v-if="status === 'success' && resourceUrl"
-        :src="resourceUrl"
+        :src="formatImageUrl(resourceUrl)"
         :alt="params.prompt"
         class="w-full h-full object-contain cursor-pointer transition-all duration-300"
         :class="isBlurred ? 'blur-xl scale-105' : 'hover:opacity-90'"
@@ -405,7 +407,7 @@ onUnmounted(() => {
     <UModal v-model:open="showPreview" :ui="{ content: 'sm:max-w-4xl' }">
       <template #content>
         <div class="relative bg-(--ui-bg) flex items-center justify-center">
-          <img :src="resourceUrl!" :alt="params.prompt" class="max-h-[85vh] object-contain" />
+          <img :src="formatImageUrl(resourceUrl!)" :alt="params.prompt" class="max-h-[85vh] object-contain" />
           <button
             class="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm hover:bg-black/70 transition-colors"
             @click="showPreview = false"

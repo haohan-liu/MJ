@@ -9,6 +9,8 @@ import {
   PROGRESS_TIME_BUFFER_RATIO,
 } from '../../shared/constants'
 
+const { formatImageUrl } = useImageUrl()
+
 const props = defineProps<{
   task: Task
 }>()
@@ -196,7 +198,7 @@ function downloadVideo() {
       <video
         v-if="task.resourceUrl"
         ref="videoRef"
-        :src="task.resourceUrl"
+        :src="formatImageUrl(task.resourceUrl)"
         class="w-full h-full object-contain cursor-pointer transition-all duration-300"
         :class="isBlurred ? 'blur-xl scale-105' : ''"
         controls
@@ -391,7 +393,7 @@ function downloadVideo() {
         <div class="relative bg-black flex items-center justify-center">
           <video
             v-if="task.resourceUrl"
-            :src="task.resourceUrl"
+            :src="formatImageUrl(task.resourceUrl)"
             class="max-h-[85vh] w-full"
             controls
             autoplay

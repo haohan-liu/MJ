@@ -1,9 +1,10 @@
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   images: string[]
 }>()
 
 const open = defineModel<boolean>('open', { default: false })
+const { formatImageUrl } = useImageUrl()
 </script>
 
 <template>
@@ -16,7 +17,7 @@ const open = defineModel<boolean>('open', { default: false })
           class="relative bg-(--ui-bg-muted) rounded-lg overflow-hidden"
         >
           <img
-            :src="img"
+            :src="formatImageUrl(img)"
             :alt="`参考图 ${index + 1}`"
             class="w-full h-auto max-h-[60vh] object-contain"
           />
