@@ -75,7 +75,16 @@ function formatDeletedTime(deletedAt: string | null) {
 <template>
   <div class="space-y-4">
     <div class="flex items-center justify-between">
-      <h2 class="text-(--ui-text) text-lg font-medium">回收站</h2>
+      <div class="flex items-center gap-3">
+        <UButton
+          variant="ghost"
+          size="sm"
+          @click="navigateTo('/studio')"
+        >
+          <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
+        </UButton>
+        <h2 class="text-(--ui-text) text-lg font-medium">回收站</h2>
+      </div>
       <div class="flex items-center gap-3">
         <UButton
           v-if="tasks.length > 0"

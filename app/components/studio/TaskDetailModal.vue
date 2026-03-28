@@ -9,6 +9,8 @@ const props = defineProps<{
 
 const open = defineModel<boolean>('open', { default: false })
 
+const { formatImageUrl } = useImageUrl()
+
 // 获取模型显示信息
 const modelInfo = computed(() => {
   const modelType = props.task.modelType as ImageModelType | VideoModelType
@@ -50,13 +52,25 @@ const statusInfo = computed(() => {
   }
 })
 
+// 实时时间戳，用于驱动生成中耗时的自动刷新
+const now = ref(Date.now())
+let intervalId: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  intervalId = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+})
+onUnmounted(() => {
+  if (intervalId) clearInterval(intervalId)
+})
+
 // 计算耗时
 const duration = computed(() => {
   if (!props.task.createdAt) return null
   const start = new Date(props.task.createdAt).getTime()
   const end = props.task.status === 'success' || props.task.status === 'failed'
     ? new Date(props.task.updatedAt).getTime()
-    : Date.now()
+    : now.value
   const seconds = Math.floor((end - start) / 1000)
   if (seconds < 60) return `${seconds}秒`
   const minutes = Math.floor(seconds / 60)
@@ -83,7 +97,7 @@ const taskTypeLabel = computed(() => {
       >
         <img
           v-if="task.resourceUrl && !task.resourceDeleted"
-          :src="task.resourceUrl"
+          :src="formatImageUrl(task.resourceUrl)"
           :alt="task.prompt ?? ''"
           class="w-full h-full object-contain"
         />

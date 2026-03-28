@@ -356,8 +356,8 @@ const currentMaxImageCount = computed(() =>
   isNanoBananaModel.value ? NANOBANANA_MAX_REFERENCE_IMAGE_COUNT : MAX_REFERENCE_IMAGE_COUNT
 )
 
-// 是否支持各参数
-const supportsSize = computed(() => capabilities.value.size === true)
+// 是否支持尺寸参数（必须模型基础能力支持，且后端确实配置了具体的尺寸选项，才会显示UI并提交参数）
+const supportsSize = computed(() => capabilities.value.size === true && currentSizeOptions.value.length > 0)
 
 const supportsQuality = computed(() => capabilities.value.quality === true)
 
@@ -424,15 +424,8 @@ const supportsImageSearch = computed(() => {
   return false
 })
 
-// 获取当前模型的尺寸选项（信任管理员的 uiCapabilities 配置）
+// 获取当前模型的尺寸选项（严格信任管理员的 uiCapabilities 配置）
 const currentSizeOptions = computed(() => {
-  // NanoBanana 模型强制使用前端定义的尺寸选项（确保默认 1K）
-  // 忽略数据库中的 uiCapabilities 配置
-  if (isNanoBananaModel.value) {
-    return nanoBananaSizeOptions
-  }
-
-  // 优先使用模型自定义的尺寸配置（管理员配置的 uiCapabilities）
   const uiCaps = (selectedAimodel.value as any)?.uiCapabilities
   if (uiCaps?.sizes?.length > 0) {
     return uiCaps.sizes.map((s: string) => ({
@@ -440,13 +433,8 @@ const currentSizeOptions = computed(() => {
       value: s
     }))
   }
-
-  // 回退到模型类型默认选项
-  if (isDalleModel.value) return dalleSizeOptions
-  if (isDoubaoModel.value) return doubaoSizeOptions
-  if (isGpt4oImageModel.value) return gptImageSizeOptions
-  if (isGeminiModel.value) return geminiSizeOptions
-  return dalleSizeOptions
+  // 严格遵循后端配置，如果没有配置，则直接返回空数组，绝不回退到任何默认选项
+  return []
 })
 
 // 获取当前模型的宽高比选项（信任管理员的 uiCapabilities 配置）
@@ -479,14 +467,23 @@ watch([() => selectedAimodel.value?.modelType, () => selectedAimodel.value?.id],
     // 尺寸和宽高比会在 watch currentSizeOptions/currentAspectRatioOptions 中自动调整
   }, { immediate: true })
 
-// 监听尺寸选项变化，自动选择第一个有效选项
+// 监听尺寸选项变化，自动选择有效选项
 watch([currentSizeOptions, () => selectedAimodel.value?.id], () => {
   if (!selectedAimodel.value || !supportsSize.value) return
   const options = currentSizeOptions.value
   if (!options.length) return
-  // 检查当前尺寸是否在选项中，不在则使用第一个选项
-  if (!options.some(option => option.value === size.value)) {
-    size.value = options[0].value
+
+  // 检查当前选中的尺寸是否在新的选项列表中
+  const isSizeValid = options.some(option => option.value === size.value)
+
+  if (!isSizeValid) {
+    // 只要后端的可用配置列表中包含 '1K'，就强制优先默认选中 '1K'
+    if (options.some(opt => opt.value === '1K')) {
+      size.value = '1K'
+    } else {
+      // 否则按照配置顺序选中第一个
+      size.value = options[0].value
+    }
   }
 }, { immediate: true })
 
@@ -771,7 +768,7 @@ defineExpose({
 
 <template>
   <div 
-    class="space-y-4 relative"
+    class="space-y-5 relative"
     @dragover="handleGlobalDragOver"
     @dragleave="handleGlobalDragLeave"
     @drop="handleGlobalDrop"
@@ -961,7 +958,7 @@ defineExpose({
       <UTextarea
         v-model="prompt"
         placeholder="例如：一只可爱的小猫咪坐在花园里，油画风格，高清，细节丰富"
-        :rows="8"
+        :rows="6"
         class="w-full"
       />
     </UFormField>
@@ -993,30 +990,45 @@ defineExpose({
             />
           </UFormField>
 
-          <!-- 思考模式选择 -->
-          <UFormField v-if="supportsThinkingMode" label="思考模式">
-            <URadioGroup
-              v-model="thinkingMode"
-              :items="thinkingModeOptions"
-              class="flex gap-4"
-            />
-          </UFormField>
+          <!-- 思考模式 + 联网/图片搜索（参考图样式：双按钮间隙 + 紫边；下方为复选框行） -->
+          <div
+            v-if="supportsThinkingMode || supportsWebSearch || supportsImageSearch"
+            class="space-y-3"
+          >
+            <div v-if="supportsThinkingMode" class="space-y-2">
+              <span class="text-sm font-medium text-(--ui-text)">思考模式</span>
+              <div class="flex gap-2">
+                <button
+                  v-for="option in thinkingModeOptions"
+                  :key="option.value"
+                  type="button"
+                class="flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors"
+                :class="thinkingMode === option.value
+                  ? 'bg-(--ui-primary)/10 text-(--ui-primary) border-(--ui-primary)'
+                  : 'border-(--ui-border-muted) bg-transparent text-(--ui-text-muted) hover:bg-(--ui-bg-accented) hover:text-(--ui-text) hover:border-(--ui-primary)'"
+                  @click="thinkingMode = option.value as 'fast' | 'medium' | 'deep'"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
 
-          <!-- Google 搜索开关 -->
-          <UFormField v-if="supportsWebSearch" label="联网搜索">
-            <template #hint>
-              <span class="text-(--ui-text-dimmed) text-xs">启用 Google 搜索获取实时信息</span>
-            </template>
-            <USwitch v-model="enableWebSearch" />
-          </UFormField>
+            <label
+              v-if="supportsWebSearch"
+              class="flex cursor-pointer items-center gap-3 select-none"
+            >
+              <UCheckbox v-model="enableWebSearch" color="primary" />
+              <span class="text-sm text-(--ui-text)">启用 Google 搜索 (实时信息)</span>
+            </label>
 
-          <!-- 图片搜索开关 -->
-          <UFormField v-if="supportsImageSearch" label="图片搜索">
-            <template #hint>
-              <span class="text-(--ui-text-dimmed) text-xs">启用网络图片搜索获取参考图片</span>
-            </template>
-            <USwitch v-model="enableImageSearch" />
-          </UFormField>
+            <label
+              v-if="supportsImageSearch"
+              class="flex cursor-pointer items-center gap-3 select-none"
+            >
+              <UCheckbox v-model="enableImageSearch" color="primary" />
+              <span class="text-sm text-(--ui-text)">启用图片搜索 (参考网络图片)</span>
+            </label>
+          </div>
 
           <!-- 宽高比选择 (Flux/Gemini) -->
           <UFormField v-if="supportsAspectRatio" label="宽高比">

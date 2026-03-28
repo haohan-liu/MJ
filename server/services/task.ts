@@ -564,7 +564,18 @@ export function useTaskService() {
           upstreamTaskId: result.upstreamTaskId,
         })
       } else {
-        // 同步 Provider：直接获取结果
+        // 同步 Provider：先切换到生成中，让用户看到生成进度
+        // 加短暂延迟1.8秒，让用户有机会在提交中阶段取消
+        await new Promise(resolve => setTimeout(resolve, 1800))
+
+        // 延迟期间可能已被用户取消，检查状态
+        const currentTask = await getTask(taskId)
+        if (!currentTask || currentTask.status === 'cancelled') {
+          return  // 用户已取消，不再继续
+        }
+
+        await updateTask(taskId, { status: 'processing' })
+
         const syncService = service as SyncService
         const result = await syncService.generate(params)
 
@@ -572,7 +583,13 @@ export function useTaskService() {
       }
     } catch (error: unknown) {
       if (isAbortError(error)) {
-        console.log(`[Task ${taskId}] 请求已被取消`)
+        // 用户取消：直接发 SSE（cancel API 已将状态改为 cancelled，但 SSE 可能丢失）
+        await emitToUser<TaskStatusUpdated>(task.userId, 'task.status.updated', {
+          taskId: task.id,
+          status: 'cancelled',
+          error: '用户已取消',
+          updatedAt: new Date().toISOString(),
+        })
         return
       }
       await updateTask(taskId, {

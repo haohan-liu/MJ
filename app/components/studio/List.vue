@@ -70,6 +70,11 @@ async function handleAction(taskId: number, customId: string) {
 async function handleRetry(taskId: number) {
   try {
     await retryTask(taskId)
+    // 立即更新本地状态
+    const index = tasks.value.findIndex((t) => t.id === taskId)
+    if (index >= 0) {
+      tasks.value[index] = { ...tasks.value[index]!, status: 'pending' as const, error: null }
+    }
   } catch (error: any) {
     toast.add({ title: error.data?.message || error.message || '重试失败', color: 'error' })
   }
@@ -78,6 +83,11 @@ async function handleRetry(taskId: number) {
 async function handleCancel(taskId: number) {
   try {
     await cancelTask(taskId)
+    // 立即更新本地状态（SSE 作为冗余保障）
+    const index = tasks.value.findIndex((t) => t.id === taskId)
+    if (index >= 0) {
+      tasks.value[index] = { ...tasks.value[index]!, status: 'cancelled' as const, error: '用户取消' }
+    }
   } catch (error: any) {
     toast.add({ title: error.data?.message || error.message || '取消失败', color: 'error' })
   }
@@ -86,6 +96,9 @@ async function handleCancel(taskId: number) {
 async function handleDelete(taskId: number) {
   try {
     await deleteTask(taskId)
+    // 立即从本地列表移除
+    tasks.value = tasks.value.filter((t) => t.id !== taskId)
+    total.value = Math.max(0, total.value - 1)
   } catch (error: any) {
     toast.add({ title: error.data?.message || error.message || '删除失败', color: 'error' })
   }
@@ -157,9 +170,9 @@ function handlePageChange() {
 </script>
 
 <template>
-  <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <h2 class="text-(--ui-text) text-lg font-medium">生成任务</h2>
+  <div class="space-y-5 text-[0.9375rem] leading-relaxed">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <h2 class="text-(--ui-text) text-base font-medium tracking-tight">生成任务</h2>
       <div class="flex items-center gap-3">
         <!-- 模糊全部/取消模糊 -->
         <div v-if="tasks.some(t => t.resourceUrl)" class="flex items-center gap-1">
@@ -205,12 +218,12 @@ function handlePageChange() {
             <span class="hidden lg:inline">回收站</span>
           </UButton>
         </NuxtLink>
-        <span class="text-(--ui-text-dimmed) text-sm">共 {{ total }} 个任务</span>
+        <span class="text-(--ui-text-dimmed) text-[0.8125rem] tabular-nums">共 {{ total }} 个任务</span>
       </div>
     </div>
 
     <!-- 筛选栏 -->
-    <div class="flex flex-wrap items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3 sm:gap-4">
       <!-- 来源筛选 -->
       <USelectMenu
         v-model="sourceType"
@@ -257,7 +270,7 @@ function handlePageChange() {
     </div>
 
     <template v-else>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
         <template v-for="task in tasks" :key="task.id">
           <!-- 视频任务使用 VideoCard -->
           <StudioVideoCard

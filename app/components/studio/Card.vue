@@ -86,7 +86,7 @@ const statusInfo = computed(() => {
     case 'pending':
       return { text: '等待中', color: 'text-(--ui-warning)', icon: 'i-heroicons-clock', showBars: false }
     case 'submitting':
-      return { text: '提交中', color: 'text-(--ui-info)', icon: null, showBars: true }
+      return { text: '提交中', color: 'text-(--ui-info)', icon: 'i-heroicons-stop', showBars: true }
     case 'processing':
       return { text: props.task.progress || '生成中', color: 'text-(--ui-primary)', icon: null, showBars: true }
     case 'success':
@@ -305,7 +305,7 @@ function downloadImage() {
 
       <!-- 取消按钮（进行中状态，底部居中显示） -->
       <div
-        v-if="['pending', 'submitting', 'processing'].includes(task.status)"
+        v-if="['pending', 'submitting'].includes(task.status)"
         class="absolute bottom-16 left-0 right-0 flex justify-center"
       >
         <button
@@ -426,9 +426,9 @@ function downloadImage() {
     </div>
 
     <!-- 信息区 -->
-    <div class="p-4">
+    <div class="px-3.5 pt-3 pb-3.5 sm:px-4 sm:pt-3.5 sm:pb-4">
       <!-- 任务ID和时间信息 -->
-      <div class="flex items-center justify-between text-(--ui-text-dimmed) text-xs mb-2">
+      <div class="flex items-start justify-between gap-2 text-(--ui-text-dimmed) text-[0.6875rem] sm:text-xs mb-2 leading-relaxed">
         <div class="flex items-center gap-2">
           <span
             class="font-mono bg-(--ui-bg-accented) px-1.5 py-0.5 rounded cursor-pointer hover:bg-(--ui-bg-inverted)/20 select-none"
@@ -441,7 +441,7 @@ function downloadImage() {
       </div>
 
       <!-- 提示词 -->
-      <p class="text-(--ui-text-muted) text-sm line-clamp-2 mb-3" :title="task.prompt ?? ''">
+      <p class="text-(--ui-text-muted) text-[0.8125rem] sm:text-sm line-clamp-2 leading-snug mb-0" :title="task.prompt ?? ''">
         <span class="text-(--ui-text-dimmed)">提示词：</span>{{ task.prompt || '图片混合' }}
       </p>
 

@@ -269,7 +269,7 @@ export default defineNuxtPlugin(() => {
   })
 
   on<TaskStatusUpdated>('task.status.updated', (data) => {
-    const { taskId, status, progress, resourceUrl, error, buttons, duration } = data
+    const { taskId, status, progress, resourceUrl, error, buttons, updatedAt, duration } = data
     const index = tasks.value.findIndex(t => t.id === taskId)
     if (index < 0) return
 
@@ -281,6 +281,7 @@ export default defineNuxtPlugin(() => {
       resourceUrl: resourceUrl !== undefined ? resourceUrl : existing.resourceUrl,
       error: error !== undefined ? error : existing.error,
       buttons: buttons !== undefined ? buttons : existing.buttons,
+      updatedAt: updatedAt || existing.updatedAt,
       duration: duration !== undefined ? duration : existing.duration,
     }
   })

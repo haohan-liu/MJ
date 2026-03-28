@@ -125,21 +125,25 @@ function handleCopyToPanel(prompt: string | null, modelParams: ImageModelParams 
 </script>
 
 <template>
-  <div class="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
-    <!-- 公告栏 -->
-    <div class="flex-shrink-0 px-4 py-3 border-b border-(--ui-border) bg-(--ui-bg)">
-      <AnnouncementBanner :max-items="5" />
+  <div class="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden min-h-0">
+    <!-- 公告栏：限制最大高度，多条时在区域内滚动，避免挤压左侧参数区 -->
+    <div
+      class="flex-shrink-0 border-b border-(--ui-border) bg-(--ui-bg) px-3 py-2 max-h-[min(30vh,12.5rem)] overflow-y-auto overscroll-y-contain"
+    >
+      <AnnouncementBanner :max-items="5" compact />
     </div>
 
     <!-- 主内容区 -->
-    <div class="flex-1 flex flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
-      <!-- 工作台面板 -->
-      <div class="flex-shrink-0 border-b lg:border-b-0 lg:border-r border-(--ui-border) bg-(--ui-bg-elevated) p-4 lg:w-[340px] lg:overflow-y-auto">
+    <div class="flex-1 flex flex-col min-h-0 overflow-y-auto lg:flex-row lg:gap-6 lg:overflow-hidden">
+      <!-- 工作台面板：略加宽 + 内边距，减轻 100% 缩放下的拥挤感 -->
+      <div
+        class="flex-shrink-0 border-b lg:border-b-0 lg:border-r border-(--ui-border) bg-(--ui-bg-elevated) p-4 sm:p-5 lg:min-h-0 lg:max-h-full lg:overflow-y-auto lg:w-[min(392px,36vw)] lg:max-w-[420px]"
+      >
         <StudioWorkbench ref="workbenchRef" :upstreams="upstreams" @submit-image="handleImageSubmit" @submit-video="handleVideoSubmit" />
       </div>
 
       <!-- 任务列表 -->
-      <div class="flex-1 p-4 lg:overflow-y-auto">
+      <div class="flex-1 min-w-0 min-h-0 p-4 sm:p-5 lg:overflow-y-auto">
         <StudioList @copy-to-panel="handleCopyToPanel" />
       </div>
     </div>

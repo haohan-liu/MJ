@@ -513,6 +513,10 @@ export interface TaskUpstreamSummary {
  * - 替代 error: any 模式
  */
 export function getErrorMessage(error: unknown): string {
+  // 取消操作，用户主动中止
+  if (isAbortError(error)) {
+    return '用户已取消'
+  }
   if (error instanceof Error) {
     return error.message
   }

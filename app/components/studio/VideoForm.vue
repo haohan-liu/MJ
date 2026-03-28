@@ -325,7 +325,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-5">
     <!-- 模型选择 -->
     <UFormField label="选择模型">
       <template #label>

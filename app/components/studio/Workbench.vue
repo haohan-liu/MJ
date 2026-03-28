@@ -90,9 +90,9 @@ defineExpose({
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-5 text-[0.9375rem] leading-relaxed">
     <div class="flex items-center justify-between">
-      <h2 class="text-(--ui-text) text-lg font-medium">创作工作台</h2>
+      <h2 class="text-(--ui-text) text-base font-medium tracking-tight">创作工作台</h2>
     </div>
 
     <!-- 标签页切换 -->
@@ -101,7 +101,7 @@ defineExpose({
         v-for="tab in tabs"
         :key="tab.value"
         :class="[
-          'flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+          'flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
           activeTab === tab.value
             ? 'border-(--ui-primary) text-(--ui-primary)'
             : 'border-transparent text-(--ui-text-muted) hover:text-(--ui-text)'

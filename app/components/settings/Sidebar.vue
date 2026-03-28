@@ -46,6 +46,12 @@ const menuItems = [
     to: '/settings/site',
     adminOnly: true,
   },
+  {
+    label: '管理员账号',
+    icon: 'i-heroicons-user-circle',
+    to: '/settings/admin-account',
+    adminOnly: true,
+  },
 ]
 
 // 过滤菜单项（管理员可见所有，普通用户隐藏管理员专属）

@@ -2,9 +2,14 @@
 // 公告展示组件
 import type { Announcement } from '~/server/database/schema'
 
-const props = defineProps<{
-  maxItems?: number // 最大显示数量，默认显示全部
-}>()
+const props = withDefaults(
+  defineProps<{
+    maxItems?: number // 最大显示数量，默认显示全部
+    /** 紧凑样式（创作工作台等场景，减少垂直占用） */
+    compact?: boolean
+  }>(),
+  { compact: false },
+)
 
 // 每次页面加载都从服务器获取最新公告
 const { data, pending } = await useFetch<{ success: boolean; data: Announcement[] }>('/api/announcements')
@@ -75,32 +80,50 @@ const hasAnnouncements = computed(() => displayAnnouncements.value.length > 0)
 
 <template>
   <div v-if="pending" class="animate-pulse">
-    <div class="h-10 bg-(--ui-bg-muted) rounded-lg" />
-  </div>
-  <div v-else-if="hasAnnouncements" class="space-y-2">
     <div
-      v-for="announcement in displayAnnouncements"
-      :key="announcement.id"
-      class="flex items-start gap-3 p-3 rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated) relative"
-    >
-      <!-- 图标 -->
-      <div :class="['flex-shrink-0 mt-0.5', getTypeConfig(announcement.type).color]">
-        <UIcon :name="announcement.icon || getTypeConfig(announcement.type).icon" class="w-5 h-5" />
-      </div>
-
-      <!-- 内容：支持 [文字](URL) 内联链接 -->
-      <div class="flex-1 min-w-0 pr-6">
-        <p class="text-sm text-(--ui-text) break-words" v-html="renderContent(announcement.content)" />
-      </div>
-
-      <!-- 关闭按钮 -->
-      <button
-        type="button"
-        class="absolute top-2 right-2 p-1 rounded hover:bg-(--ui-bg-accented) text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
-        @click.stop="dismissAnnouncement(announcement.id)"
+      class="bg-(--ui-bg-muted) rounded-lg"
+      :class="compact ? 'h-7' : 'h-10'"
+    />
+  </div>
+  <!-- 多条公告共用一个外框 -->
+  <div
+    v-else-if="hasAnnouncements"
+    class="relative rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)"
+    :class="compact ? 'px-3 py-2 pr-8' : 'px-4 py-3 pr-10'"
+  >
+    <!-- 公告列表（图标+内容横向排列，全部居中对齐） -->
+    <div class="space-y-1">
+      <div
+        v-for="announcement in displayAnnouncements"
+        :key="announcement.id"
+        class="flex items-center gap-2"
       >
-        <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-      </button>
+        <!-- 图标 -->
+        <UIcon
+          :name="announcement.icon || getTypeConfig(announcement.type).icon"
+          :class="[
+            getTypeConfig(announcement.type).color,
+            compact ? 'size-4 shrink-0' : 'size-5 shrink-0',
+          ]"
+        />
+
+        <!-- 内容：支持 [文字](URL) 内联链接 -->
+        <p
+          class="min-w-0 flex-1 text-(--ui-text) break-words leading-snug [&_a]:underline [&_a]:underline-offset-2"
+          :class="compact ? 'text-sm' : 'text-base'"
+          v-html="renderContent(announcement.content)"
+        />
+      </div>
     </div>
+
+    <!-- 统一关闭按钮（右上角 absolute） -->
+    <button
+      type="button"
+      class="absolute top-2 right-2 rounded text-(--ui-text-muted) transition-colors hover:bg-(--ui-bg-accented) hover:text-(--ui-text)"
+      :class="compact ? 'p-1' : 'p-1.5'"
+      @click.stop="dismissAnnouncement(displayAnnouncements[0].id)"
+    >
+      <UIcon name="i-heroicons-x-mark" class="size-4" />
+    </button>
   </div>
 </template>
