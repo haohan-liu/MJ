@@ -99,6 +99,7 @@ const taskTypeLabel = computed(() => {
           v-if="task.resourceUrl && !task.resourceDeleted"
           :src="formatImageUrl(task.resourceUrl)"
           :alt="task.prompt ?? ''"
+          loading="lazy"
           class="w-full h-full object-contain"
         />
         <div v-else class="w-full h-full flex items-center justify-center p-4">

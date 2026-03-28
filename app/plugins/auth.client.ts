@@ -16,7 +16,7 @@ export default defineNuxtPlugin(() => {
     },
     onResponseError({ response }) {
       const currentPath = useRoute().path
-      const isLoginPage = currentPath === '/login' || currentPath === '/admin-login'
+      const isLoginPage = currentPath === '/login'
 
       // 401 时自动登出并跳转登录页
       if (response.status === 401) {

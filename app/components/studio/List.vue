@@ -12,6 +12,7 @@ const { tasks, isLoading, currentPage, pageSize, total, sourceType, taskType, ke
 const blurLoading = ref(false)
 const clearInvalidLoading = ref(false)
 const showClearInvalidConfirm = ref(false)
+const invalidTaskCount = ref(0)
 
 // 来源筛选选项
 const sourceOptions = [
@@ -118,6 +119,16 @@ function getCurrentPageTaskIds() {
   return tasks.value.filter(t => t.resourceUrl).map(t => t.id)
 }
 
+// 获取失效任务数量
+async function loadInvalidTaskCount() {
+  try {
+    const result = await $fetch<{ count: number }>('/api/tasks/invalid-count')
+    invalidTaskCount.value = result.count
+  } catch {
+    invalidTaskCount.value = 0
+  }
+}
+
 // 模糊当前页
 async function blurAll() {
   blurLoading.value = true
@@ -156,6 +167,7 @@ async function confirmClearInvalid() {
     })
     toast.add({ title: `成功清理了 ${result.count} 个失效任务！`, color: 'success' })
     loadTasks()
+    invalidTaskCount.value = 0
   } catch (error: any) {
     toast.add({ title: error.data?.message || error.message || '清理失败', color: 'error' })
   } finally {
@@ -167,6 +179,11 @@ async function confirmClearInvalid() {
 function handlePageChange() {
   loadTasks()
 }
+
+// 加载失效任务数量
+onMounted(() => {
+  loadInvalidTaskCount()
+})
 </script>
 
 <template>
@@ -199,8 +216,9 @@ function handlePageChange() {
             <span class="hidden lg:inline">显示本页</span>
           </UButton>
         </div>
-        <!-- 清理失效任务 -->
+        <!-- 清理失效任务（仅当存在失效任务时显示） -->
         <UButton
+          v-if="invalidTaskCount > 0"
           size="xs"
           variant="ghost"
           color="neutral"
@@ -208,7 +226,7 @@ function handlePageChange() {
           :disabled="clearInvalidLoading"
           @click="openClearInvalidConfirm"
         >
-          <UIcon name="i-heroicons-trash" class="w-4 h-4 lg:mr-1" />
+          <UIcon name="i-heroicons-broom" class="w-4 h-4 lg:mr-1" />
           <span class="hidden lg:inline">清理失效任务</span>
         </UButton>
         <!-- 回收站 -->

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { USER_SETTING_KEYS } from '~/shared/constants'
 
 definePageMeta({
@@ -128,9 +128,9 @@ function handleAvatarChange(event: Event) {
     return
   }
 
-  // 检查文件大小（500KB）
-  if (file.size > 500 * 1024) {
-    toast.add({ title: '图片大小不能超过 500KB', color: 'error' })
+  // 检查文件大小（1MB）
+  if (file.size > 1024 * 1024) {
+    toast.add({ title: '图片大小不能超过 1MB', color: 'error' })
     return
   }
 
@@ -247,7 +247,7 @@ const platformLabels: Record<string, string> = {
             </div>
             <div class="text-center">
               <p class="text-sm text-(--ui-text)">点击上传头像</p>
-              <p class="text-xs text-(--ui-text-dimmed)">支持 JPG、PNG，最大 500KB</p>
+              <p class="text-xs text-(--ui-text-dimmed)">支持 JPG、PNG，最大 1MB</p>
             </div>
             <input
               ref="avatarInput"
@@ -358,7 +358,7 @@ const platformLabels: Record<string, string> = {
           <div class="flex items-center justify-between">
             <div class="flex flex-col">
               <span class="text-sm text-(--ui-text)">绘图结果默认模糊</span>
-              <span class="text-xs text-(--ui-text-dimmed)">开启后，新生成的图片会自动模糊显示，防止在公共场合被他人看到</span>
+              <span class="text-xs text-(--ui-text-dimmed)">开启后，新生成的图片会自动模糊显示，防止在公共场合被他人看到，保护隐私</span>
             </div>
             <USwitch v-model="preferencesForm.blurByDefault" />
           </div>
@@ -367,7 +367,7 @@ const platformLabels: Record<string, string> = {
           <div class="flex items-center justify-between">
             <div class="flex flex-col">
               <span class="text-sm text-(--ui-text)">自动压缩参考图</span>
-              <span class="text-xs text-(--ui-text-dimmed)">开启后，大于 5MB 的参考图会自动压缩，加快上传速度和生成响应</span>
+              <span class="text-xs text-(--ui-text-dimmed)">开启后，大于 5MB 的参考图会自动压缩，加快上传速度和生成响应，避免卡顿</span>
             </div>
             <USwitch v-model="preferencesForm.autoCompressRefImage" />
           </div>

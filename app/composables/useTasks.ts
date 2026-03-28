@@ -2,6 +2,18 @@
 import type { ModelType, ApiFormat, TaskType, ModelParams, TaskUpstreamSummary, PaginatedResponse } from '../shared/types'
 import type { MJButton } from '../shared/events'
 
+// 防抖函数
+function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): T {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return ((...args: Parameters<T>) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      fn(...args)
+      timer = null
+    }, delay)
+  }) as T
+}
+
 export type { TaskUpstreamSummary }
 
 // 前端 Task 类型（API 响应格式，与数据库 Task 不同）
@@ -48,9 +60,31 @@ export function useTasks() {
   const taskType = useState<TaskType | 'all'>('tasks-taskType', () => 'all')
   const keyword = useState('tasks-keyword', () => '')
 
+  // 是否已初始化 visibility 监听（避免 SSR 报错）
+  let visibilityHandlerInitialized = false
+
+  // 状态补偿机制：页面从休眠中恢复时，静默刷新任务列表
+  const refreshOnVisible = debounce(() => {
+    if (import.meta.client && document.visibilityState === 'visible') {
+      loadTasks()
+    }
+  }, 1000)
+
+  // 设置 visibilitychange 监听（仅客户端执行一次）
+  function setupVisibilityHandler() {
+    if (!import.meta.client || visibilityHandlerInitialized) return
+    visibilityHandlerInitialized = true
+
+    document.addEventListener('visibilitychange', () => {
+      refreshOnVisible()
+    })
+  }
+
   // 加载任务列表（支持分页和筛选）
   async function loadTasks(page?: number) {
     isLoading.value = true
+    // 设置 visibility 监听（首次加载时初始化）
+    setupVisibilityHandler()
     if (page !== undefined) {
       currentPage.value = page
     }

@@ -203,6 +203,7 @@ function downloadVideo() {
         :class="isBlurred ? 'blur-xl scale-105' : ''"
         controls
         preload="metadata"
+        loading="lazy"
         @click.stop="handleVideoClick"
       />
 
@@ -397,6 +398,7 @@ function downloadVideo() {
             class="max-h-[85vh] w-full"
             controls
             autoplay
+            loading="lazy"
           />
           <!-- 关闭按钮 -->
           <button

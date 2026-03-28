@@ -6,7 +6,6 @@ definePageMeta({
 const { user, logout } = useAuth()
 const toast = useToast()
 
-// 检查管理员权限
 if (user.value?.role !== 'admin') {
   navigateTo('/settings')
 }
@@ -14,7 +13,6 @@ if (user.value?.role !== 'admin') {
 const isLoading = ref(true)
 const isSaving = ref(false)
 
-// 表单数据
 const form = reactive({
   username: '',
   name: '',
@@ -23,12 +21,13 @@ const form = reactive({
   confirmPassword: '',
 })
 
-// 密码可见性
 const showCurrentPassword = ref(false)
 const showNewPassword = ref(false)
 const showConfirmPassword = ref(false)
 
-// 加载管理员信息
+/** 管理员是否已有密码（来自接口，用于校验「当前密码」是否必填） */
+const adminPasswordSet = ref(false)
+
 async function loadAdminInfo() {
   isLoading.value = true
   try {
@@ -37,10 +36,12 @@ async function loadAdminInfo() {
       username: string
       email: string | null
       name: string | null
+      passwordSet?: boolean
     }>('/api/admin/admin-account')
 
     form.username = admin.username || ''
     form.name = admin.name || ''
+    adminPasswordSet.value = admin.passwordSet ?? false
   } catch (error: any) {
     toast.add({
       title: '加载失败',
@@ -52,19 +53,16 @@ async function loadAdminInfo() {
   }
 }
 
-// 保存修改
 async function saveChanges() {
-  // 验证表单
   if (form.newPassword || form.confirmPassword) {
-    if (!form.currentPassword) {
+    if (adminPasswordSet.value && !form.currentPassword) {
       toast.add({
         title: '请输入当前密码',
-        description: '修改密码时必须输入当前密码',
+        description: '修改密码时需要验证当前密码',
         color: 'error',
       })
       return
     }
-
     if (form.newPassword.length < 6) {
       toast.add({
         title: '新密码长度不足',
@@ -73,7 +71,6 @@ async function saveChanges() {
       })
       return
     }
-
     if (form.newPassword !== form.confirmPassword) {
       toast.add({
         title: '密码不一致',
@@ -100,15 +97,14 @@ async function saveChanges() {
     if (form.username) {
       body.username = form.username
     }
-
     if (form.name !== undefined) {
       body.name = form.name
     }
-
-    // 如果要修改密码
     if (form.newPassword) {
-      body.currentPassword = form.currentPassword
       body.password = form.newPassword
+      if (form.currentPassword) {
+        body.currentPassword = form.currentPassword
+      }
     }
 
     await $fetch('/api/admin/admin-account', {
@@ -116,21 +112,25 @@ async function saveChanges() {
       body,
     })
 
+    const passwordChanged = !!form.newPassword
+
     toast.add({
       title: '保存成功',
-      description: '管理员账号信息已更新，将跳转到登录页面',
+      description: passwordChanged ? '已更新，请使用新方式重新登录' : '管理员账号信息已更新',
       color: 'success',
     })
 
-    // 清空密码字段
     form.currentPassword = ''
     form.newPassword = ''
     form.confirmPassword = ''
 
-    // 延迟跳转，让用户看清成功提示
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    logout()
-    await navigateTo('/admin-login')
+    if (passwordChanged) {
+      await new Promise(resolve => setTimeout(resolve, 800))
+      logout()
+      await navigateTo('/login')
+    } else {
+      await loadAdminInfo()
+    }
   } catch (error: any) {
     toast.add({
       title: '保存失败',
@@ -142,7 +142,6 @@ async function saveChanges() {
   }
 }
 
-// 重置表单
 function resetForm() {
   form.currentPassword = ''
   form.newPassword = ''
@@ -158,23 +157,19 @@ onMounted(() => {
 <template>
   <SettingsLayout>
     <div class="space-y-6">
-      <!-- 页面标题 -->
       <div class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-medium text-(--ui-text)">管理员账号</h2>
-          <p class="text-(--ui-text-muted) text-sm mt-1">修改管理员的登录账号和密码</p>
+          <p class="text-(--ui-text-muted) text-sm mt-1">修改唯一管理员的登录账号与密码（仅更新当前管理员，不会新建用户）</p>
         </div>
       </div>
 
-      <!-- 加载状态 -->
       <div v-if="isLoading" class="text-center py-12">
         <UIcon name="i-heroicons-arrow-path" class="w-8 h-8 text-(--ui-text-dimmed) animate-spin" />
       </div>
 
       <div v-else class="max-w-xl">
-        <!-- 表单卡片 -->
         <div class="bg-(--ui-bg-elevated) rounded-lg p-6 border border-(--ui-border) space-y-6">
-          <!-- 基本信息 -->
           <div class="space-y-4">
             <h3 class="text-base font-medium text-(--ui-text)">基本信息</h3>
 
@@ -185,7 +180,7 @@ onMounted(() => {
                 class="w-full"
               />
               <template #hint>
-                <span class="text-(--ui-text-dimmed) text-xs">用于登录管理后台</span>
+                <span class="text-(--ui-text-dimmed) text-xs">对应数据库中 role 为 admin 的唯一用户</span>
               </template>
             </UFormField>
 
@@ -200,17 +195,18 @@ onMounted(() => {
 
           <div class="border-t border-(--ui-border)" />
 
-          <!-- 修改密码 -->
           <div class="space-y-4">
             <h3 class="text-base font-medium text-(--ui-text)">修改密码</h3>
-            <p class="text-sm text-(--ui-text-muted)">如果不修改密码，请留空以下密码字段</p>
+            <p class="text-sm text-(--ui-text-muted)">
+              不修改密码请留空。{{ adminPasswordSet ? '已设置过密码时，修改必须填写当前密码。' : '当前尚未设置密码时，可直接设置新密码。' }}
+            </p>
 
-            <UFormField label="当前密码" :required="!!form.newPassword">
+            <UFormField label="当前密码" :required="!!form.newPassword && adminPasswordSet">
               <div class="flex items-center gap-2">
                 <UInput
                   v-model="form.currentPassword"
                   :type="showCurrentPassword ? 'text' : 'password'"
-                  placeholder="输入当前密码"
+                  placeholder="已有密码时必填"
                   class="flex-1"
                 />
                 <UButton
@@ -228,7 +224,7 @@ onMounted(() => {
                 <UInput
                   v-model="form.newPassword"
                   :type="showNewPassword ? 'text' : 'password'"
-                  placeholder="输入新密码（至少6位）"
+                  placeholder="至少 6 位"
                   class="flex-1"
                 />
                 <UButton
@@ -260,30 +256,21 @@ onMounted(() => {
             </UFormField>
           </div>
 
-          <!-- 操作按钮 -->
           <div class="flex justify-end gap-3 pt-4">
-            <UButton
-              variant="outline"
-              @click="resetForm"
-            >
+            <UButton variant="outline" @click="resetForm">
               重置
             </UButton>
-            <UButton
-              :loading="isSaving"
-              @click="saveChanges"
-            >
+            <UButton :loading="isSaving" @click="saveChanges">
               保存修改
             </UButton>
           </div>
         </div>
 
-        <!-- 提示信息 -->
         <div class="mt-6 p-4 bg-(--ui-bg-elevated) rounded-lg border border-(--ui-border)">
           <div class="flex gap-3">
             <UIcon name="i-heroicons-information-circle" class="w-5 h-5 text-(--ui-primary) shrink-0 mt-0.5" />
             <div class="text-sm text-(--ui-text-muted) space-y-1">
-              <p>修改账号或密码后，需要使用新信息重新登录。</p>
-              <p>请妥善保管您的账号和密码，不要泄露给他人。</p>
+              <p>本站登录使用外部聚合 API Key；此处密码仅用于后台预留或后续扩展，修改密码成功后会退出并跳转到登录页。</p>
             </div>
           </div>
         </div>

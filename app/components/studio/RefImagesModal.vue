@@ -62,6 +62,7 @@ watch(
             <img
               :src="formatImageUrl(img)"
               :alt="`参考图 ${index + 1}`"
+              loading="lazy"
               class="w-full h-auto max-h-[60vh] object-contain"
               @error="onImgError(index)"
             />

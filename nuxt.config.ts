@@ -22,11 +22,6 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   css: [
     '~/assets/css/main.css',
-    '@vue-flow/core/dist/style.css',
-    '@vue-flow/core/dist/theme-default.css',
-    '@vue-flow/minimap/dist/style.css',
-    '@vue-flow/controls/dist/style.css',
-    '@vue-flow/node-resizer/dist/style.css',
   ],
 
   app: {

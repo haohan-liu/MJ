@@ -261,22 +261,231 @@ function downloadImage() {
   a.click()
 }
 
+// 图片渐进式加载状态（不影响防窥屏模糊功能）
+const imageLoaded = ref(false)
+const imageError = ref(false)
+const shouldLoadImage = ref(false)
+const imageContainerRef = ref<HTMLElement | null>(null)
+
+// 加载延迟时间（毫秒）- 控制服务器负载，延迟请求让骨架屏先显示
+const LOAD_DELAY_MS = 600
+
+// 高并发保护：全局请求队列，限制同时加载的图片数量
+const MAX_CONCURRENT_LOADS = 4
+let currentLoadingCount = 0
+const loadingQueue: Array<() => void> = []
+
+function processQueue() {
+  if (currentLoadingCount < MAX_CONCURRENT_LOADS && loadingQueue.length > 0) {
+    const next = loadingQueue.shift()
+    if (next) next()
+  }
+}
+
+function requestImageLoad(callback: () => void) {
+  if (currentLoadingCount < MAX_CONCURRENT_LOADS) {
+    currentLoadingCount++
+    callback()
+  } else {
+    loadingQueue.push(() => {
+      currentLoadingCount++
+      callback()
+    })
+  }
+}
+
+function releaseImageLoad() {
+  currentLoadingCount = Math.max(0, currentLoadingCount - 1)
+  processQueue()
+}
+
+// 使用 IntersectionObserver 实现真正的懒加载 + 优雅占位
+let observer: IntersectionObserver | null = null
+
+function setupImageObserver() {
+  if (!import.meta.client || !imageContainerRef.value || observer) return
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting && !shouldLoadImage.value) {
+          // 延迟加载，减少首屏并发请求
+          setTimeout(() => {
+            requestImageLoad(() => {
+              shouldLoadImage.value = true
+            })
+          }, LOAD_DELAY_MS)
+          observer?.disconnect()
+        }
+      })
+    },
+    {
+      rootMargin: '0px',
+      threshold: 0,
+    }
+  )
+
+  observer.observe(imageContainerRef.value)
+}
+
+function onImageLoad() {
+  imageLoaded.value = true
+  imageError.value = false
+  releaseImageLoad()
+}
+
+function onImageError() {
+  imageError.value = true
+  imageLoaded.value = false
+  releaseImageLoad()
+}
+
+onMounted(() => {
+  setupImageObserver()
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+  observer = null
+})
+
 </script>
 
 <template>
   <div class="bg-(--ui-bg-elevated) backdrop-blur-sm rounded-lg border border-(--ui-border) overflow-hidden">
     <!-- 图片预览 -->
-    <div class="aspect-square relative" :class="task.resourceUrl && !task.resourceDeleted && !isBlurred ? 'checkerboard-bg' : 'bg-(--ui-bg-muted)'">
+    <div
+      ref="imageContainerRef"
+      class="aspect-square relative"
+      :class="task.resourceUrl && !task.resourceDeleted && !isBlurred ? 'checkerboard-bg' : 'bg-(--ui-bg-muted)'"
+    >
+      <!-- 优雅的骨架屏占位层（图片未加载或加载中时显示，完全覆盖背景） -->
+      <Transition name="skeleton-fade">
+        <div
+          v-if="task.resourceUrl && !task.resourceDeleted && !imageLoaded"
+          class="absolute inset-0 z-10 overflow-hidden rounded-none"
+          aria-hidden="true"
+        >
+          <!-- 纯色背景层（完全不透明，确保覆盖一切背景） -->
+          <div class="absolute inset-0 bg-(--ui-bg)" />
+          
+          <!-- 彩色模糊光斑背景层 - 脉动呼吸效果 -->
+          <div class="absolute inset-0 overflow-hidden animate-breathe">
+            <div class="absolute -top-1/4 -left-1/4 w-full h-full rounded-full animate-float-blur animate-float-blur-1" />
+            <div class="absolute -top-1/3 -right-1/4 w-4/5 h-4/5 rounded-full animate-float-blur animate-float-blur-2" />
+            <div class="absolute -bottom-1/4 -left-1/3 w-3/4 h-3/4 rounded-full animate-float-blur animate-float-blur-3" />
+          </div>
+          
+          <!-- 优雅渐变光晕叠加 -->
+          <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-pink-500/10 animate-shimmer" />
+          
+          <!-- 高级轮廓光效果 -->
+          <div class="absolute inset-0 animate-border-glow">
+            <div class="absolute inset-[1px] rounded-sm bg-gradient-to-br from-purple-500/30 via-transparent to-cyan-500/30" />
+          </div>
+          
+          <!-- 抽象能量流加载动画 -->
+          <div class="absolute inset-0 flex items-center justify-center overflow-hidden">
+            <!-- 抽象流动线条 -->
+            <svg class="w-28 h-28 opacity-60" viewBox="0 0 100 100">
+              <!-- 流动曲线1 -->
+              <path 
+                class="animate-flow-path-1"
+                d="M 10 50 Q 25 20, 50 50 T 90 50"
+                fill="none"
+                stroke="url(#flowGradient1)"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <!-- 流动曲线2 -->
+              <path 
+                class="animate-flow-path-2"
+                d="M 20 30 Q 40 60, 60 30 T 80 30"
+                fill="none"
+                stroke="url(#flowGradient2)"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <!-- 流动曲线3 -->
+              <path 
+                class="animate-flow-path-3"
+                d="M 15 70 Q 35 40, 55 70 T 85 70"
+                fill="none"
+                stroke="url(#flowGradient3)"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <!-- 流动曲线4 -->
+              <path 
+                class="animate-flow-path-4"
+                d="M 5 50 Q 30 80, 50 50 T 95 50"
+                fill="none"
+                stroke="url(#flowGradient1)"
+                stroke-width="1"
+                stroke-linecap="round"
+              />
+              <!-- 渐变定义 -->
+              <defs>
+                <linearGradient id="flowGradient1" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#a855f7" stop-opacity="0.2" />
+                  <stop offset="50%" stop-color="#ec4899" stop-opacity="0.8" />
+                  <stop offset="100%" stop-color="#a855f7" stop-opacity="0.2" />
+                </linearGradient>
+                <linearGradient id="flowGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.2" />
+                  <stop offset="50%" stop-color="#ec4899" stop-opacity="0.7" />
+                  <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.2" />
+                </linearGradient>
+                <linearGradient id="flowGradient3" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#a855f7" stop-opacity="0.2" />
+                  <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.7" />
+                  <stop offset="100%" stop-color="#a855f7" stop-opacity="0.2" />
+                </linearGradient>
+              </defs>
+            </svg>
+            
+            <!-- 漂浮光点粒子 -->
+            <div class="absolute inset-0">
+              <div class="absolute w-2 h-2 rounded-full bg-gradient-to-r from-purple-400 to-pink-400 animate-particle-1" />
+              <div class="absolute w-1.5 h-1.5 rounded-full bg-gradient-to-r from-cyan-400 to-purple-400 animate-particle-2" />
+              <div class="absolute w-1 h-1 rounded-full bg-gradient-to-r from-pink-400 to-cyan-400 animate-particle-3" />
+              <div class="absolute w-1.5 h-1.5 rounded-full bg-gradient-to-r from-purple-400 to-cyan-400 animate-particle-4" />
+              <div class="absolute w-1 h-1 rounded-full bg-gradient-to-r from-pink-400 to-purple-400 animate-particle-5" />
+            </div>
+          </div>
+          
+          <!-- 优雅的占位符纹理（高级感） -->
+          <div class="absolute inset-0 opacity-[0.03]">
+            <svg class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="currentColor" stroke-width="0.5"/>
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#grid)" />
+            </svg>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- 实际图片（IntersectionObserver 控制加载时机） -->
       <img
-        v-if="task.resourceUrl && !task.resourceDeleted"
+        v-if="task.resourceUrl && !task.resourceDeleted && shouldLoadImage"
         :src="formatImageUrl(task.resourceUrl)"
         :alt="task.prompt ?? ''"
-        class="w-full h-full object-contain cursor-pointer transition-all duration-300"
-        :class="isBlurred ? 'blur-xl scale-105' : ''"
+        class="w-full h-full object-contain cursor-pointer transition-opacity duration-700 ease-out"
+        :class="[
+          isBlurred ? 'blur-xl scale-105' : '',
+          imageLoaded ? 'opacity-100' : 'opacity-0'
+        ]"
         @click="handleImageClick"
+        @load="onImageLoad"
+        @error="onImageError"
       />
+
+      <!-- 无资源时的占位显示（过期/失败等状态） -->
       <div
-        v-else
+        v-if="!task.resourceUrl || task.resourceDeleted || imageError"
         class="w-full h-full flex items-center justify-center p-4"
       >
         <div class="text-center">
@@ -464,11 +673,21 @@ function downloadImage() {
     <UModal v-model:open="showImagePreview" :ui="{ content: 'sm:max-w-4xl' }">
       <template #content>
         <div class="relative bg-(--ui-bg) flex items-center justify-center">
+          <!-- 预览图片占位骨架 -->
+          <div
+            v-if="task.resourceUrl && !imageLoaded"
+            class="absolute inset-0 z-10 flex items-center justify-center"
+          >
+            <div class="w-16 h-16 border-4 border-(--ui-border) border-t-(--ui-primary) rounded-full animate-spin" />
+          </div>
           <img
             v-if="task.resourceUrl"
             :src="formatImageUrl(task.resourceUrl)"
             :alt="task.prompt ?? ''"
-            class="max-h-[85vh]"
+            class="max-h-[85vh] transition-opacity duration-300"
+            :class="imageLoaded ? 'opacity-100' : 'opacity-0'"
+            @load="onImageLoad"
+            @error="onImageError"
           />
           <!-- 关闭按钮 -->
           <button
@@ -495,6 +714,393 @@ function downloadImage() {
 </template>
 
 <style scoped>
+/* 骨架屏淡出过渡动画 */
+.skeleton-fade-leave-active {
+  transition: opacity 0.8s ease-out;
+}
+
+.skeleton-fade-leave-to {
+  opacity: 0;
+}
+
+/* 呼吸动画 - 让整体有生命感 */
+@keyframes breathe {
+  0%, 100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+.animate-breathe {
+  animation: breathe 4s ease-in-out infinite;
+}
+
+/* 轮廓光效果 */
+@keyframes border-glow {
+  0%, 100% {
+    opacity: 0.3;
+    filter: blur(0px);
+  }
+  50% {
+    opacity: 0.6;
+    filter: blur(2px);
+  }
+}
+
+.animate-border-glow {
+  animation: border-glow 3s ease-in-out infinite;
+}
+
+/* 骨架屏 shimmer 动画 - 更柔和的流光 */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    105deg,
+    transparent 10%,
+    rgba(168, 85, 247, 0.08) 35%,
+    rgba(236, 72, 153, 0.06) 50%,
+    rgba(6, 182, 212, 0.05) 65%,
+    transparent 90%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 5s infinite linear;
+}
+
+:root.dark .animate-shimmer {
+  background: linear-gradient(
+    105deg,
+    transparent 10%,
+    rgba(168, 85, 247, 0.12) 35%,
+    rgba(236, 72, 153, 0.09) 50%,
+    rgba(6, 182, 212, 0.07) 65%,
+    transparent 90%
+  );
+  background-size: 200% 100%;
+}
+
+/* 彩色模糊光斑动画 - 梦幻飘渺感 */
+@keyframes float-blur-1 {
+  0%, 100% {
+    transform: translate(0, 0) scale(1.2) rotate(0deg);
+    opacity: 0.6;
+    filter: blur(35px) brightness(1);
+  }
+  25% {
+    transform: translate(12px, -18px) scale(1.35) rotate(5deg);
+    opacity: 0.8;
+    filter: blur(40px) brightness(1.1);
+  }
+  50% {
+    transform: translate(-8px, 12px) scale(1.15) rotate(-3deg);
+    opacity: 0.55;
+    filter: blur(32px) brightness(0.95);
+  }
+  75% {
+    transform: translate(5px, -8px) scale(1.28) rotate(2deg);
+    opacity: 0.75;
+    filter: blur(38px) brightness(1.05);
+  }
+}
+
+@keyframes float-blur-2 {
+  0%, 100% {
+    transform: translate(0, 0) scale(1.1) rotate(0deg);
+    opacity: 0.5;
+    filter: blur(38px) brightness(1);
+  }
+  33% {
+    transform: translate(-15px, 10px) scale(1.25) rotate(-6deg);
+    opacity: 0.7;
+    filter: blur(42px) brightness(1.1);
+  }
+  66% {
+    transform: translate(10px, -12px) scale(1.0) rotate(4deg);
+    opacity: 0.45;
+    filter: blur(35px) brightness(0.9);
+  }
+}
+
+@keyframes float-blur-3 {
+  0%, 100% {
+    transform: translate(0, 0) scale(1.15) rotate(0deg);
+    opacity: 0.55;
+    filter: blur(36px) brightness(1);
+  }
+  50% {
+    transform: translate(8px, 15px) scale(1.3) rotate(-4deg);
+    opacity: 0.75;
+    filter: blur(42px) brightness(1.15);
+  }
+}
+
+.animate-float-blur {
+  mix-blend-mode: screen;
+  animation-duration: 6s;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-iteration-count: infinite;
+}
+
+.animate-float-blur-1 {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.9) 0%, rgba(139, 92, 246, 0.5) 40%, transparent 70%);
+  animation-name: float-blur-1;
+}
+
+.animate-float-blur-2 {
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.8) 0%, rgba(219, 39, 119, 0.45) 40%, transparent 70%);
+  animation-name: float-blur-2;
+  animation-delay: -2s;
+}
+
+.animate-float-blur-3 {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.8) 0%, rgba(8, 145, 178, 0.45) 40%, transparent 70%);
+  animation-name: float-blur-3;
+  animation-delay: -4s;
+}
+
+:root.dark .animate-float-blur-1 {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.7) 0%, rgba(139, 92, 246, 0.4) 40%, transparent 70%);
+}
+
+:root.dark .animate-float-blur-2 {
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.6) 0%, rgba(219, 39, 119, 0.35) 40%, transparent 70%);
+}
+
+:root.dark .animate-float-blur-3 {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.6) 0%, rgba(8, 145, 178, 0.35) 40%, transparent 70%);
+}
+
+/* 抽象流动曲线动画 */
+@keyframes flow-path-1 {
+  0% {
+    stroke-dashoffset: 200;
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -200;
+    opacity: 0.3;
+  }
+}
+
+@keyframes flow-path-2 {
+  0% {
+    stroke-dashoffset: 150;
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    stroke-dashoffset: -150;
+    opacity: 0.2;
+  }
+}
+
+@keyframes flow-path-3 {
+  0% {
+    stroke-dashoffset: 180;
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    stroke-dashoffset: -180;
+    opacity: 0.25;
+  }
+}
+
+@keyframes flow-path-4 {
+  0% {
+    stroke-dashoffset: 220;
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    stroke-dashoffset: -220;
+    opacity: 0.15;
+  }
+}
+
+.animate-flow-path-1 {
+  stroke-dasharray: 30 15;
+  animation: flow-path-1 3s linear infinite;
+}
+
+.animate-flow-path-2 {
+  stroke-dasharray: 25 12;
+  animation: flow-path-2 2.5s linear infinite;
+  animation-delay: -0.8s;
+}
+
+.animate-flow-path-3 {
+  stroke-dasharray: 20 10;
+  animation: flow-path-3 2.8s linear infinite;
+  animation-delay: -1.5s;
+}
+
+.animate-flow-path-4 {
+  stroke-dasharray: 35 18;
+  animation: flow-path-4 3.5s linear infinite;
+  animation-delay: -2s;
+}
+
+/* 漂浮粒子动画 - 自由飘动 */
+@keyframes particle-1 {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate(40px, -30px) scale(1.2);
+    opacity: 1;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate(60px, 20px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+@keyframes particle-2 {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate(-30px, -40px) scale(1.1);
+    opacity: 0.9;
+  }
+  85% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate(-50px, 30px) scale(0.6);
+    opacity: 0;
+  }
+}
+
+@keyframes particle-3 {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(25px, 35px) scale(1.3);
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translate(-20px, -25px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes particle-4 {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate(-45px, 25px) scale(1.15);
+    opacity: 1;
+  }
+  88% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate(35px, -35px) scale(0.7);
+    opacity: 0;
+  }
+}
+
+@keyframes particle-5 {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate(50px, -20px) scale(1.25);
+    opacity: 0.85;
+  }
+  82% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate(-30px, 40px) scale(0.55);
+    opacity: 0;
+  }
+}
+
+.animate-particle-1 {
+  top: 30%;
+  left: 25%;
+  animation: particle-1 4s ease-in-out infinite;
+}
+
+.animate-particle-2 {
+  top: 60%;
+  left: 70%;
+  animation: particle-2 3.5s ease-in-out infinite;
+  animation-delay: -1s;
+}
+
+.animate-particle-3 {
+  top: 45%;
+  left: 50%;
+  animation: particle-3 3s ease-in-out infinite;
+  animation-delay: -2s;
+}
+
+.animate-particle-4 {
+  top: 25%;
+  left: 65%;
+  animation: particle-4 4.5s ease-in-out infinite;
+  animation-delay: -0.5s;
+}
+
+.animate-particle-5 {
+  top: 70%;
+  left: 35%;
+  animation: particle-5 3.8s ease-in-out infinite;
+  animation-delay: -1.8s;
+}
+
 .checkerboard-bg {
   background-image:
     linear-gradient(45deg, #e0e0e0 25%, transparent 25%),

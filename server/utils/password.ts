@@ -4,15 +4,14 @@ import { promisify } from 'util'
 
 const scryptAsync = promisify(scrypt)
 
-// 哈希密码
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('hex')
   const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer
   return `${salt}:${derivedKey.toString('hex')}`
 }
 
-// 验证密码
-export async function verifyPassword(storedPassword: string, suppliedPassword: string): Promise<boolean> {
+export async function verifyPassword(storedPassword: string | null | undefined, suppliedPassword: string): Promise<boolean> {
+  if (!storedPassword) return false
   const [salt, key] = storedPassword.split(':')
   if (!salt || !key) return false
 

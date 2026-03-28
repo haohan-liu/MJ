@@ -4,29 +4,32 @@ import { db } from '../database'
 import { existsSync } from 'fs'
 import { users } from '../database/schema'
 import { eq } from 'drizzle-orm'
-import { hashPassword } from '../utils/password'
 
 // 创建默认管理员账号
+// 【重要】只检查 role = 'admin'，而不是 username
+// 这样修改管理员用户名后不会重复创建账户
 async function seedAdminUser() {
   const adminUsername = 'admin'
-  const adminPassword = 'admin123456'
 
-  // 检查管理员是否已存在
+  // 检查管理员是否已存在（通过 role 检查，而不是 username）
   const existingAdmin = await db.query.users.findFirst({
-    where: eq(users.username, adminUsername),
+    where: eq(users.role, 'admin'),
   })
 
-  if (!existingAdmin) {
-    const hashedPassword = await hashPassword(adminPassword)
-    await db.insert(users).values({
-      username: adminUsername,
-      email: `admin@${Date.now()}.local`, // 提供一个唯一的邮箱以满足数据库约束
-      password: hashedPassword,
-      name: '管理员',
-      role: 'admin',
-    })
-    console.log('[DB] 默认管理员账号已创建 (admin/admin123456)')
+  if (existingAdmin) {
+    // 管理员已存在，跳过创建
+    console.log(`[DB] 管理员账号已存在 (${existingAdmin.username})`)
+    return
   }
+
+  // 没有管理员，创建默认账号（使用 API Key 模式，不需要密码）
+  await db.insert(users).values({
+    username: adminUsername,
+    email: `admin@${Date.now()}.local`,
+    name: '管理员',
+    role: 'admin',
+  })
+  console.log('[DB] 默认管理员账号已创建')
 }
 
 export default defineNitroPlugin(async () => {

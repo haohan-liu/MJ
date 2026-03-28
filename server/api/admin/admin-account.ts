@@ -1,15 +1,13 @@
 // GET /api/admin/admin-account - 获取管理员账号信息
-// PUT /api/admin/admin-account - 修改管理员账号信息
+// PUT /api/admin/admin-account - 修改唯一管理员（role=admin）的账号信息，不创建新用户
 import { db } from '../../database'
 import { users } from '../../database/schema'
 import { eq } from 'drizzle-orm'
-import { hashPassword } from '../../utils/password'
+import { hashPassword, verifyPassword } from '../../utils/password'
 
 export default defineEventHandler(async (event) => {
-  // 仅管理员可访问
-  const { user: currentUser } = await requireAdmin(event)
+  await requireAdmin(event)
 
-  // GET 请求：获取管理员账号信息
   if (event.method === 'GET') {
     const admin = await db.query.users.findFirst({
       where: eq(users.role, 'admin'),
@@ -27,15 +25,20 @@ export default defineEventHandler(async (event) => {
       username: admin.username,
       email: admin.email,
       name: admin.name,
+      /** 是否已设置过登录密码（不含哈希，仅布尔） */
+      passwordSet: Boolean(admin.password),
     }
   }
 
-  // PUT 请求：修改管理员账号信息
   if (event.method === 'PUT') {
     const body = await readBody(event)
-    const { username, password, name, currentPassword } = body
+    const { username, name, password, currentPassword } = body as {
+      username?: string
+      name?: string
+      password?: string
+      currentPassword?: string
+    }
 
-    // 查找当前管理员
     const admin = await db.query.users.findFirst({
       where: eq(users.role, 'admin'),
     })
@@ -47,43 +50,9 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 验证当前密码（如果修改密码）
-    if (password) {
-      if (!currentPassword) {
-        throw createError({
-          statusCode: 400,
-          message: '请输入当前密码以确认身份',
-        })
-      }
+    // 仅更新这一条管理员记录（admin.id），绝不 insert 新用户
 
-      if (!admin.password) {
-        throw createError({
-          statusCode: 400,
-          message: '当前管理员未设置密码',
-        })
-      }
-
-      const { verifyPassword } = await import('../../utils/password')
-      const isValid = await verifyPassword(admin.password, currentPassword)
-      if (!isValid) {
-        throw createError({
-          statusCode: 401,
-          message: '当前密码错误',
-        })
-      }
-
-      // 验证新密码长度
-      if (password.length < 6) {
-        throw createError({
-          statusCode: 400,
-          message: '新密码长度不能少于6位',
-        })
-      }
-    }
-
-    // 验证用户名（如果修改）
     if (username && username !== admin.username) {
-      // 检查用户名是否已被占用
       const existingUser = await db.query.users.findFirst({
         where: eq(users.username, username),
       })
@@ -103,22 +72,44 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // 构建更新数据
-    const updateData: Record<string, any> = {}
+    const updateData: Record<string, unknown> = {}
 
     if (username && username !== admin.username) {
       updateData.username = username
-    }
-
-    if (password) {
-      updateData.password = await hashPassword(password)
     }
 
     if (name !== undefined) {
       updateData.name = name
     }
 
-    // 如果没有要更新的内容
+    if (password !== undefined && password !== null && String(password).length > 0) {
+      const newPwd = String(password)
+      if (newPwd.length < 6) {
+        throw createError({
+          statusCode: 400,
+          message: '新密码长度不能少于6位',
+        })
+      }
+
+      if (admin.password) {
+        if (!currentPassword) {
+          throw createError({
+            statusCode: 400,
+            message: '请输入当前密码以确认身份',
+          })
+        }
+        const ok = await verifyPassword(admin.password, currentPassword)
+        if (!ok) {
+          throw createError({
+            statusCode: 401,
+            message: '当前密码错误',
+          })
+        }
+      }
+      // 管理员尚无密码时允许直接设置首密码（如迁移后 seed 未写 password）
+      updateData.password = await hashPassword(newPwd)
+    }
+
     if (Object.keys(updateData).length === 0) {
       throw createError({
         statusCode: 400,
@@ -126,12 +117,10 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 执行更新
     await db.update(users)
       .set(updateData)
       .where(eq(users.id, admin.id))
 
-    // 返回更新后的信息
     const updatedAdmin = await db.query.users.findFirst({
       where: eq(users.id, admin.id),
     })

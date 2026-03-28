@@ -11,31 +11,9 @@ import {
   messages,
   userSettings,
 } from '../../database/schema'
-import { verifyPassword } from '../../utils/password'
 
 export default defineEventHandler(async (event) => {
   const { user: sessionUser } = await requireAuth(event)
-  const body = await readBody(event)
-  const { password } = body
-
-  if (!password) {
-    throw createError({ statusCode: 400, message: '请输入密码确认删除' })
-  }
-
-  // 验证密码
-  const [user] = await db.select({ id: users.id, password: users.password })
-    .from(users)
-    .where(eq(users.id, sessionUser.id))
-    .limit(1)
-
-  if (!user) {
-    throw createError({ statusCode: 404, message: '用户不存在' })
-  }
-
-  const isValid = await verifyPassword(user.password, password)
-  if (!isValid) {
-    throw createError({ statusCode: 400, message: '密码错误' })
-  }
 
   // 开始删除用户数据（按依赖顺序）
   const userId = sessionUser.id
